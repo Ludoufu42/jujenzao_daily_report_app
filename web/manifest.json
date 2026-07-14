@@ -5,7 +5,7 @@
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "振愷營造工地日報表產生器 - 網頁預覽版",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

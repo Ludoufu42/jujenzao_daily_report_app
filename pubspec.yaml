@@ -71,6 +71,8 @@ flutter_launcher_icons:
   ios: false
   windows:
     generate: true
+  web:
+    generate: true
   image_path: "assets/icon/app_icon.png"
 
 # For information on the generic Dart part of this file, see the
