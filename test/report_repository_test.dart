@@ -21,7 +21,7 @@ void main() {
   setUp(() async {
     db = await databaseFactory.openDatabase(inMemoryDatabasePath);
     await DatabaseHelper.createSchema(db);
-    repo = ReportRepository.withDatabase(db);
+    repo = SqliteReportRepository.withDatabase(db);
     project = await repo.createProject(Project(
       name: 'Test',
       companyName: 'Test',

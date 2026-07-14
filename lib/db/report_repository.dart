@@ -68,14 +68,158 @@ class EquipmentEntryInput {
   bool get hasValue => quantity > 0;
 }
 
-class ReportRepository {
-  ReportRepository._internal(this._injectedDb);
-  static final ReportRepository instance = ReportRepository._internal(null);
+/// Storage-agnostic contract for all report/project/trade-type/inspection
+/// persistence. [SqliteReportRepository] is the original on-device
+/// implementation; a Dropbox-backed implementation can be swapped in via
+/// [instance] without touching any call site, since every screen only ever
+/// depends on this interface (`ReportRepository.instance.xxx()`).
+abstract class ReportRepository {
+  static ReportRepository instance = SqliteReportRepository();
+
+  // ---------------- Projects ----------------
+
+  Future<Project> createProject(Project project);
+
+  Future<List<Project>> getProjects();
+
+  Future<void> deleteProject(int projectId);
+
+  // ---------------- Trade types ----------------
+
+  Future<List<TradeType>> getTradeTypes(
+    int projectId,
+    String category, {
+    bool includeDisabledAndDeleted = false,
+  });
+
+  Future<TradeType> addTradeType({
+    required int projectId,
+    required String category,
+    required TradeCategoryType type,
+    required String name,
+    required String unit,
+  });
+
+  Future<void> setTradeTypeStatus(int tradeTypeId, TradeStatus status);
+
+  /// Permanently deletes a trade type AND every historical entry referencing it.
+  Future<void> forceDeleteTradeType(int tradeTypeId);
+
+  // ---------------- Cumulative lookups ----------------
+
+  /// Public entry point so the preview screen can show what a trade type's
+  /// cumulative total *would* become, before the report is actually saved.
+  Future<double> previousCumulative(
+    String entryTable,
+    int projectId,
+    int tradeTypeId,
+    DateTime beforeDate,
+  );
+
+  /// Counts 工作天 (actual working days) from [project]'s start date through
+  /// [uptoDate] inclusive, per whichever exclusion rules the project turned
+  /// on at creation time (weekends / national holidays / bad weather).
+  ///
+  /// Bad-weather exclusion only ever removes a day that has *positive
+  /// evidence* of rain (a filed report with rainy/heavyRain/typhoon
+  /// weather) — a calendar day with no report at all is not assumed to be
+  /// a rained-out day, since there is no record either way. [uptoDateIsBadWeather]
+  /// lets the preview screen factor in the *current, not-yet-saved* report's
+  /// weather selection for uptoDate itself.
+  Future<int> countWorkingDays({
+    required Project project,
+    required DateTime uptoDate,
+    bool uptoDateIsBadWeather = false,
+  });
+
+  // ---------------- Daily reports ----------------
+
+  /// A project may have at most one report per calendar date. Callers use
+  /// this to decide whether a picked date should start a brand-new (possibly
+  /// 補登/backfilled) report or load the existing one for editing.
+  Future<DailyReport?> getReportByDate(int projectId, DateTime date);
+
+  /// Most recent report strictly before [date] — used to lock today's 要徑
+  /// choice to whatever the previous report planned as its
+  /// tomorrowCriticalPath (rule: only the project's very first report ever
+  /// gets a free choice of 要徑).
+  Future<DailyReport?> getMostRecentReportBefore(int projectId, DateTime date);
+
+  /// Count of 補登 (backfilled) reports for a project — surfaced next to the
+  /// project on the home screen since it feeds into staff performance review.
+  Future<int> countBackfilledReports(int projectId);
+
+  Future<int> createDailyReportWithEntries({
+    required DailyReport report,
+    required List<LaborEntryInput> laborInputs,
+    required List<MaterialEntryInput> materialInputs,
+    required List<EquipmentEntryInput> equipmentInputs,
+    required List<String> photoPaths,
+  });
+
+  /// Overwrites an existing day's report in place (same row id, and its
+  /// original [DailyReport.isBackfilled] flag is left untouched — editing a
+  /// day never turns it into, or out of, a 補登 entry). Because earlier
+  /// entries' cumulative totals feed forward into every later day, changing
+  /// this day's quantities requires recomputing cumulative for every report
+  /// after it too.
+  Future<void> updateDailyReportWithEntries({
+    required DailyReport report,
+    required List<LaborEntryInput> laborInputs,
+    required List<MaterialEntryInput> materialInputs,
+    required List<EquipmentEntryInput> equipmentInputs,
+    required List<String> photoPaths,
+  });
+
+  Future<List<DailyReport>> getReports(int projectId);
+
+  Future<List<LaborEntry>> getLaborEntries(int reportId);
+
+  Future<List<MaterialEntry>> getMaterialEntries(int reportId);
+
+  Future<List<EquipmentEntry>> getEquipmentEntries(int reportId);
+
+  Future<List<ReportPhoto>> getReportPhotos(int reportId);
+
+  // ---------------- Inspections (要徑查驗) ----------------
+
+  Future<int> createInspection({
+    required Inspection inspection,
+    required List<InspectionItemRecord> items,
+    required List<String> photoPaths,
+  });
+
+  Future<void> updateInspectionPdfPath(int inspectionId, String pdfPath);
+
+  Future<List<Inspection>> getInspections(int projectId);
+
+  /// Most recent inspection for a specific 要徑 step — used to check whether
+  /// that step's inspection was already completed before allowing the
+  /// project to advance to the next one.
+  Future<Inspection?> getLatestInspectionFor(
+    int projectId,
+    String criticalPathLabel,
+  );
+
+  Future<List<InspectionItemRecord>> getInspectionItems(int inspectionId);
+
+  Future<List<InspectionPhotoRecord>> getInspectionPhotos(int inspectionId);
+}
+
+/// The original on-device implementation, backed by sqflite (native FFI on
+/// desktop/mobile, WASM via sqflite_common_ffi_web on the browser preview
+/// build — see platform_db_factory_*.dart).
+class SqliteReportRepository implements ReportRepository {
+  SqliteReportRepository._internal(this._injectedDb);
+  static final SqliteReportRepository _shared =
+      SqliteReportRepository._internal(null);
+
+  factory SqliteReportRepository() => _shared;
 
   /// Allows tests to point this repository at an in-memory database
   /// instead of the app's real on-device singleton.
-  factory ReportRepository.withDatabase(Database db) =>
-      ReportRepository._internal(db);
+  factory SqliteReportRepository.withDatabase(Database db) =>
+      SqliteReportRepository._internal(db);
 
   final Database? _injectedDb;
 
@@ -84,6 +228,7 @@ class ReportRepository {
 
   // ---------------- Projects ----------------
 
+  @override
   Future<Project> createProject(Project project) async {
     final db = await _db;
     final id = await db.insert('projects', project.toMap());
@@ -114,12 +259,14 @@ class ReportRepository {
     await batch.commit(noResult: true);
   }
 
+  @override
   Future<List<Project>> getProjects() async {
     final db = await _db;
     final rows = await db.query('projects', orderBy: 'id DESC');
     return rows.map(Project.fromMap).toList();
   }
 
+  @override
   Future<void> deleteProject(int projectId) async {
     final db = await _db;
     await db.delete('projects', where: 'id = ?', whereArgs: [projectId]);
@@ -127,6 +274,7 @@ class ReportRepository {
 
   // ---------------- Trade types ----------------
 
+  @override
   Future<List<TradeType>> getTradeTypes(
     int projectId,
     String category, {
@@ -148,6 +296,7 @@ class ReportRepository {
     return rows.map(TradeType.fromMap).toList();
   }
 
+  @override
   Future<TradeType> addTradeType({
     required int projectId,
     required String category,
@@ -173,6 +322,7 @@ class ReportRepository {
     return tradeType.copyWith(id: id);
   }
 
+  @override
   Future<void> setTradeTypeStatus(int tradeTypeId, TradeStatus status) async {
     final db = await _db;
     await db.update(
@@ -183,7 +333,7 @@ class ReportRepository {
     );
   }
 
-  /// Permanently deletes a trade type AND every historical entry referencing it.
+  @override
   Future<void> forceDeleteTradeType(int tradeTypeId) async {
     final db = await _db;
     await db.transaction((txn) async {
@@ -232,8 +382,7 @@ class ReportRepository {
     return (rows.first['cumulative'] as num).toDouble();
   }
 
-  /// Public entry point so the preview screen can show what a trade type's
-  /// cumulative total *would* become, before the report is actually saved.
+  @override
   Future<double> previousCumulative(
     String entryTable,
     int projectId,
@@ -250,16 +399,7 @@ class ReportRepository {
     );
   }
 
-  /// Counts 工作天 (actual working days) from [project]'s start date through
-  /// [uptoDate] inclusive, per whichever exclusion rules the project turned
-  /// on at creation time (weekends / national holidays / bad weather).
-  ///
-  /// Bad-weather exclusion only ever removes a day that has *positive
-  /// evidence* of rain (a filed report with rainy/heavyRain/typhoon
-  /// weather) — a calendar day with no report at all is not assumed to be
-  /// a rained-out day, since there is no record either way. [uptoDateIsBadWeather]
-  /// lets the preview screen factor in the *current, not-yet-saved* report's
-  /// weather selection for uptoDate itself.
+  @override
   Future<int> countWorkingDays({
     required Project project,
     required DateTime uptoDate,
@@ -321,9 +461,7 @@ class ReportRepository {
 
   // ---------------- Daily reports ----------------
 
-  /// A project may have at most one report per calendar date. Callers use
-  /// this to decide whether a picked date should start a brand-new (possibly
-  /// 補登/backfilled) report or load the existing one for editing.
+  @override
   Future<DailyReport?> getReportByDate(int projectId, DateTime date) async {
     final db = await _db;
     final dayStart = DateTime(date.year, date.month, date.day);
@@ -342,10 +480,7 @@ class ReportRepository {
     return DailyReport.fromMap(rows.first);
   }
 
-  /// Most recent report strictly before [date] — used to lock today's 要徑
-  /// choice to whatever the previous report planned as its
-  /// tomorrowCriticalPath (rule: only the project's very first report ever
-  /// gets a free choice of 要徑).
+  @override
   Future<DailyReport?> getMostRecentReportBefore(
     int projectId,
     DateTime date,
@@ -363,8 +498,7 @@ class ReportRepository {
     return DailyReport.fromMap(rows.first);
   }
 
-  /// Count of 補登 (backfilled) reports for a project — surfaced next to the
-  /// project on the home screen since it feeds into staff performance review.
+  @override
   Future<int> countBackfilledReports(int projectId) async {
     final db = await _db;
     final rows = await db.rawQuery(
@@ -374,6 +508,7 @@ class ReportRepository {
     return (rows.first['c'] as int?) ?? 0;
   }
 
+  @override
   Future<int> createDailyReportWithEntries({
     required DailyReport report,
     required List<LaborEntryInput> laborInputs,
@@ -398,12 +533,7 @@ class ReportRepository {
     });
   }
 
-  /// Overwrites an existing day's report in place (same row id, and its
-  /// original [DailyReport.isBackfilled] flag is left untouched — editing a
-  /// day never turns it into, or out of, a 補登 entry). Because earlier
-  /// entries' cumulative totals feed forward into every later day, changing
-  /// this day's quantities requires recomputing cumulative for every report
-  /// after it too.
+  @override
   Future<void> updateDailyReportWithEntries({
     required DailyReport report,
     required List<LaborEntryInput> laborInputs,
@@ -548,11 +678,6 @@ class ReportRepository {
     }
   }
 
-  /// Recomputes cumulative for every report strictly after [afterDate] in
-  /// date order, since each one's cumulative is only correct if the report
-  /// before it is. Walking forward re-derives each cumulative from the
-  /// entries table directly (which the previous iteration just updated), so
-  /// the chain stays consistent all the way to the most recent report.
   Future<void> _recalculateCumulativeAfter({
     required DatabaseExecutor txn,
     required int projectId,
@@ -620,6 +745,7 @@ class ReportRepository {
     }
   }
 
+  @override
   Future<List<DailyReport>> getReports(int projectId) async {
     final db = await _db;
     final rows = await db.query(
@@ -631,6 +757,7 @@ class ReportRepository {
     return rows.map(DailyReport.fromMap).toList();
   }
 
+  @override
   Future<List<LaborEntry>> getLaborEntries(int reportId) async {
     final db = await _db;
     final rows = await db.query(
@@ -641,6 +768,7 @@ class ReportRepository {
     return rows.map(LaborEntry.fromMap).toList();
   }
 
+  @override
   Future<List<MaterialEntry>> getMaterialEntries(int reportId) async {
     final db = await _db;
     final rows = await db.query(
@@ -651,6 +779,7 @@ class ReportRepository {
     return rows.map(MaterialEntry.fromMap).toList();
   }
 
+  @override
   Future<List<EquipmentEntry>> getEquipmentEntries(int reportId) async {
     final db = await _db;
     final rows = await db.query(
@@ -661,6 +790,7 @@ class ReportRepository {
     return rows.map(EquipmentEntry.fromMap).toList();
   }
 
+  @override
   Future<List<ReportPhoto>> getReportPhotos(int reportId) async {
     final db = await _db;
     final rows = await db.query(
@@ -674,6 +804,7 @@ class ReportRepository {
 
   // ---------------- Inspections (要徑查驗) ----------------
 
+  @override
   Future<int> createInspection({
     required Inspection inspection,
     required List<InspectionItemRecord> items,
@@ -707,6 +838,7 @@ class ReportRepository {
     });
   }
 
+  @override
   Future<void> updateInspectionPdfPath(int inspectionId, String pdfPath) async {
     final db = await _db;
     await db.update(
@@ -717,6 +849,7 @@ class ReportRepository {
     );
   }
 
+  @override
   Future<List<Inspection>> getInspections(int projectId) async {
     final db = await _db;
     final rows = await db.query(
@@ -728,9 +861,7 @@ class ReportRepository {
     return rows.map(Inspection.fromMap).toList();
   }
 
-  /// Most recent inspection for a specific 要徑 step — used to check whether
-  /// that step's inspection was already completed before allowing the
-  /// project to advance to the next one.
+  @override
   Future<Inspection?> getLatestInspectionFor(
     int projectId,
     String criticalPathLabel,
@@ -747,6 +878,7 @@ class ReportRepository {
     return Inspection.fromMap(rows.first);
   }
 
+  @override
   Future<List<InspectionItemRecord>> getInspectionItems(
     int inspectionId,
   ) async {
@@ -759,6 +891,7 @@ class ReportRepository {
     return rows.map(InspectionItemRecord.fromMap).toList();
   }
 
+  @override
   Future<List<InspectionPhotoRecord>> getInspectionPhotos(
     int inspectionId,
   ) async {
