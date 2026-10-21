@@ -215,6 +215,24 @@ void main() {
       );
     });
 
+    test('上傳日報 PDF:送到對的網址、帶 PDF 內容類型;409 說明要先儲存日報', () async {
+      cloud.client = MockClient((req) async {
+        expect(req.method, 'PUT');
+        expect(req.url.path, '/app/projects/2/reports/2026-10-21/pdf');
+        expect(req.headers['Content-Type'], 'application/pdf');
+        expect(req.headers['Authorization'], 'Bearer tok');
+        expect(utf8.decode(req.bodyBytes), startsWith('%PDF-'));
+        return http.Response('{}', 200);
+      });
+      await cloud.uploadReportPdf(2, '2026-10-21', utf8.encode('%PDF-1.4 test'));
+
+      cloud.client = MockClient((req) async => http.Response('x', 409));
+      expect(
+        () => cloud.uploadReportPdf(2, '2026-10-21', utf8.encode('%PDF-')),
+        throwsA(isA<CloudException>().having((e) => e.message, 'msg', contains('先儲存日報'))),
+      );
+    });
+
     test('登出清掉快取', () async {
       cloud.client = MockClient((req) async => http.Response.bytes(utf8.encode(jsonEncode(_bundle)), 200));
       await cloud.fetchBundle(2);

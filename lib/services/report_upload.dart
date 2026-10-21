@@ -95,3 +95,29 @@ Future<String> uploadReportToCloud(
     return '已儲存日報，但雲端上傳失敗（$e）';
   }
 }
+
+/// 產生日報 PDF 後一併上傳雲端(PDF 含照片與簽名,管理者在平台拉回來看)。
+/// 如果雲端還沒有這天的日報(先前上傳失敗),先補傳日報再重傳 PDF 一次。
+Future<String> uploadReportPdfToCloud(
+  ReportDraft draft,
+  ReportPreviewData data,
+  List<int> pdfBytes,
+) async {
+  final pid = draft.project.platformProjectId;
+  if (pid == null) return 'PDF 未上傳雲端（這個專案不是從工程管理推播來的）';
+  final date = CloudReportSync.dateKey(draft.reportDate);
+  try {
+    try {
+      await CloudService.instance.uploadReportPdf(pid, date, pdfBytes);
+    } on CloudException catch (e) {
+      if (e.statusCode != 409) rethrow;
+      await uploadReportToCloud(draft, data);
+      await CloudService.instance.uploadReportPdf(pid, date, pdfBytes);
+    }
+    return 'PDF 已上傳雲端';
+  } on CloudException catch (e) {
+    return 'PDF 上傳雲端失敗：${e.message}';
+  } catch (e) {
+    return 'PDF 上傳雲端失敗（$e）';
+  }
+}

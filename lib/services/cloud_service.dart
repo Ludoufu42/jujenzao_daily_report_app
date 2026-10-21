@@ -193,6 +193,30 @@ class CloudService {
     }
   }
 
+  /// 上傳日報 PDF(含照片與簽名)。日報本身要先送出過,否則雲端回 409。
+  Future<void> uploadReportPdf(
+    int projectId,
+    String date,
+    List<int> pdfBytes,
+  ) async {
+    final res = await client
+        .put(
+          _uri('/app/projects/$projectId/reports/$date/pdf'),
+          headers: {
+            ...await _authHeaders(),
+            'Content-Type': 'application/pdf',
+          },
+          body: pdfBytes,
+        )
+        .timeout(const Duration(seconds: 60));
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw CloudException(
+        res.statusCode == 409 ? '雲端還沒有這天的日報,請先儲存日報' : _httpError(res).message,
+        statusCode: res.statusCode,
+      );
+    }
+  }
+
   /// 當天雲端上最新的一份日報(`daily-report/2`);雲端還沒有就回傳 null。
   Future<Map<String, dynamic>?> fetchReport(int projectId, String date) async {
     try {

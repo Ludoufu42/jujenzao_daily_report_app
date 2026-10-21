@@ -153,6 +153,12 @@ class _StepPreviewState extends State<StepPreview> {
         photoPaths: draft.photoPaths,
         supervisorSignature: signature,
       );
+      final pdfMessage = await uploadReportPdfToCloud(draft, data, bytes);
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(pdfMessage)));
+      }
       await Printing.layoutPdf(onLayout: (format) async => bytes);
     } finally {
       if (mounted) setState(() => _busy = false);
