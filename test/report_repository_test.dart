@@ -519,7 +519,7 @@ void main() {
           reportDate: DateTime(2026, 7, 9),
           weatherAm: Weather.sunny,
           weatherPm: Weather.sunny,
-          tomorrowCriticalPath: '假設工程擋土設施施作',
+          tomorrowWorkCode: 'T002',
           createdAt: DateTime.now(),
         ),
         laborInputs: const [],
@@ -553,7 +553,7 @@ void main() {
         DateTime(2026, 7, 10),
       );
       expect(resultForGapDay!.reportDate, DateTime(2026, 7, 9));
-      expect(resultForGapDay.tomorrowCriticalPath, '假設工程擋土設施施作');
+      expect(resultForGapDay.tomorrowWorkCode, 'T002');
     });
   });
 
@@ -562,7 +562,7 @@ void main() {
       final inspectionId = await repo.createInspection(
         inspection: Inspection(
           projectId: project.id!,
-          criticalPathLabel: '地上一樓放樣工程',
+          workCode: 'T101',
           templateName: '放樣工程',
           inspectorSignaturePath: '/tmp/sig.png',
           createdAt: DateTime.now(),
@@ -595,7 +595,7 @@ void main() {
       expect(photos, hasLength(2));
 
       final inspections = await repo.getInspections(project.id!);
-      expect(inspections.single.criticalPathLabel, '地上一樓放樣工程');
+      expect(inspections.single.workCode, 'T101');
     });
 
     test('getLatestInspectionFor finds the most recent inspection for a step',
@@ -603,7 +603,7 @@ void main() {
       await repo.createInspection(
         inspection: Inspection(
           projectId: project.id!,
-          criticalPathLabel: '地上一樓放樣工程',
+          workCode: 'T101',
           templateName: '放樣工程',
           createdAt: DateTime(2026, 7, 1),
         ),
@@ -616,7 +616,7 @@ void main() {
         isNull,
       );
       expect(
-        await repo.getLatestInspectionFor(project.id!, '地上一樓放樣工程'),
+        await repo.getLatestInspectionFor(project.id!, 'T101'),
         isNotNull,
       );
     });
@@ -625,7 +625,7 @@ void main() {
       final inspectionId = await repo.createInspection(
         inspection: Inspection(
           projectId: project.id!,
-          criticalPathLabel: '地上一樓放樣工程',
+          workCode: 'T101',
           templateName: '放樣工程',
           createdAt: DateTime.now(),
         ),
@@ -637,6 +637,37 @@ void main() {
 
       final inspections = await repo.getInspections(project.id!);
       expect(inspections.single.pdfPath, '/tmp/report.pdf');
+    });
+  });
+
+  group('upsertCloudProject (專案來自工程管理推播)', () {
+    Project cloudProject({String name = '白平衡II館', int above = 2}) => Project(
+      name: name,
+      companyName: '振愷營造',
+      startDate: DateTime(2026, 11, 2),
+      plannedCompletionDate: DateTime(2026, 11, 2),
+      aboveGroundFloors: above,
+      platformProjectId: 42,
+    );
+
+    test('第一次建立(含預設工種),再次同步只更新、不重複建立', () async {
+      final first = await repo.upsertCloudProject(cloudProject());
+      expect(first.id, isNotNull);
+      expect(
+        (await repo.getTradeTypes(first.id!, '假設工程')).isNotEmpty,
+        isTrue,
+      );
+
+      final second = await repo.upsertCloudProject(
+        cloudProject(name: '白平衡II館(改名)', above: 3),
+      );
+      expect(second.id, first.id);
+      final matches = (await repo.getProjects())
+          .where((p) => p.platformProjectId == 42)
+          .toList();
+      expect(matches, hasLength(1));
+      expect(matches.single.name, '白平衡II館(改名)');
+      expect(matches.single.aboveGroundFloors, 3);
     });
   });
 }

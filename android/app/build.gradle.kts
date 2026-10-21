@@ -23,9 +23,6 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        // flutter_web_auth_2 catches the Dropbox OAuth redirect via this custom
-        // scheme (must match DropboxConfig.redirectUri's scheme in Dart code).
-        manifestPlaceholders["appAuthRedirectScheme"] = "com.jujenzao.jujenzao_daily_report_app"
     }
 
     buildTypes {

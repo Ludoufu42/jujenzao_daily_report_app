@@ -35,7 +35,7 @@ class DatabaseHelper {
     final path = await databaseFilePath();
     return openDatabase(
       path,
-      version: 6,
+      version: 7,
       onCreate: (db, version) => createSchema(db),
       onUpgrade: (db, oldVersion, newVersion) => _upgrade(db, oldVersion),
       onConfigure: (db) async {
@@ -98,6 +98,24 @@ class DatabaseHelper {
     if (oldVersion < 6) {
       await _createInspectionTables(db);
     }
+    if (oldVersion < 7) {
+      // 要徑改吃工程管理交付包:欄位存工項固定代號 + 版本號,不再存名稱文字。
+      await db.execute(
+        'ALTER TABLE daily_reports RENAME COLUMN today_critical_path TO today_work_code',
+      );
+      await db.execute(
+        'ALTER TABLE daily_reports RENAME COLUMN tomorrow_critical_path TO tomorrow_work_code',
+      );
+      await db.execute('ALTER TABLE daily_reports ADD COLUMN today_work_ver INTEGER');
+      await db.execute('ALTER TABLE daily_reports ADD COLUMN tomorrow_work_ver INTEGER');
+      // 6 以前升級上來的,檢查表在上面剛建好,欄位已經是新名稱。
+      if (oldVersion >= 6) {
+        await db.execute(
+          'ALTER TABLE inspections RENAME COLUMN critical_path_label TO work_code',
+        );
+      }
+      await db.execute('ALTER TABLE projects ADD COLUMN platform_project_id INTEGER');
+    }
   }
 
   static Future<void> _createInspectionTables(Database db) async {
@@ -105,7 +123,7 @@ class DatabaseHelper {
       CREATE TABLE inspections (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-        critical_path_label TEXT NOT NULL,
+        work_code TEXT NOT NULL,
         template_name TEXT NOT NULL,
         inspector_signature_path TEXT,
         pdf_path TEXT,
@@ -160,7 +178,8 @@ class DatabaseHelper {
         above_ground_floors INTEGER,
         typical_floor_area_ping REAL,
         roof_floors INTEGER,
-        roof_floor_area_ping REAL
+        roof_floor_area_ping REAL,
+        platform_project_id INTEGER
       )
     ''');
 
@@ -185,8 +204,10 @@ class DatabaseHelper {
         weather_am TEXT NOT NULL,
         weather_pm TEXT NOT NULL,
         is_rain_or_holiday INTEGER NOT NULL DEFAULT 0,
-        today_critical_path TEXT,
-        tomorrow_critical_path TEXT,
+        today_work_code TEXT,
+        today_work_ver INTEGER,
+        tomorrow_work_code TEXT,
+        tomorrow_work_ver INTEGER,
         today_progress_text TEXT NOT NULL DEFAULT '',
         tomorrow_progress_text TEXT NOT NULL DEFAULT '',
         notes_text TEXT NOT NULL DEFAULT '',

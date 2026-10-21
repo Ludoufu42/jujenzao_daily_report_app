@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../db/report_repository.dart';
-import '../../models/critical_path.dart';
+import '../../models/work_sequence.dart';
+import '../../services/cloud_report_sync.dart';
 import '../../models/inspection_checklist.dart';
 import '../../theme.dart';
+import '../../widgets/work_dropdown.dart';
 import '../../wizard/report_draft.dart';
 import 'critical_path_inspection_screen.dart';
 
@@ -26,10 +28,8 @@ class _StepTodayProgressState extends State<StepTodayProgress> {
   final _repo = ReportRepository.instance;
   late final ReportDraft _draft;
   late final TextEditingController _controller;
-  late final List<CriticalPathStep> _criticalPathSteps;
-
   bool _loadingLock = true;
-  // Null while free-choice; non-null (and equal to the locked label) once
+  // Null while free-choice; non-null (and equal to the locked 工項代號) once
   // rule 3 applies — the dropdown then only ever offers this one option.
   String? _lockedToPath;
   // True when the lock above is not the normal "advance to what was planned"
@@ -37,12 +37,11 @@ class _StepTodayProgressState extends State<StepTodayProgress> {
   // actually inspected.
   bool _lockedBecauseUninspected = false;
 
-  CriticalPathStep? _findStep(String label) {
-    for (final s in _criticalPathSteps) {
-      if (s.label == label) return s;
-    }
-    return null;
-  }
+  bool _resolveStarted = false;
+
+  WorkSequence? get _sequence => _draft.sequence;
+
+  String _nameOf(String code) => _sequence?.byCode(code)?.label ?? code;
 
   @override
   void initState() {
@@ -50,32 +49,40 @@ class _StepTodayProgressState extends State<StepTodayProgress> {
     _draft = context.read<ReportDraft>();
     _controller = TextEditingController(text: _draft.todayProgress);
     _draft.addListener(_syncFromDraft);
-    _criticalPathSteps = generateCriticalPathSteps(_draft.project);
+    _maybeResolveLock();
+  }
+
+  /// 要等雲端的要徑順序下載完(或確定沒有)才能判斷鎖定。
+  void _maybeResolveLock() {
+    if (_resolveStarted || _draft.sequenceLoading) return;
+    _resolveStarted = true;
     _resolveLock();
   }
 
+  /// 昨天(前一份日報)的今日要徑:今日要徑只能是它或它後面的,絕不會是更早的。
+  String? _floorCode;
+
   Future<void> _resolveLock() async {
-    // Editing an existing report, or already resolved earlier this session
-    // (e.g. returning to this step after going "上一頁") — trust whatever is
-    // already on the draft rather than re-deriving it.
-    if (_draft.todayCriticalPath != null) {
+    if (_sequence == null) {
       setState(() => _loadingLock = false);
       return;
     }
-
-    final previous = await _repo.getMostRecentReportBefore(
-      _draft.project.id!,
+    final previous = await CloudReportSync().previousReport(
+      _draft.project,
       _draft.reportDate,
     );
     if (!mounted) return;
+    _floorCode = previous?.todayWorkCode;
 
-    if (previous != null) {
-      final previousToday = previous.todayCriticalPath;
-      final previousStep =
-          previousToday != null ? _findStep(previousToday) : null;
+    // 前一份日報的要徑如果必須查驗、卻沒有查驗紀錄,今日要徑就鎖在同一項,
+    // 完成查驗才能往下。別支手機送的日報在本機查不到查驗紀錄,不拿來判斷。
+    if (_draft.todayWorkCode == null &&
+        previous != null &&
+        !previous.fromCloud) {
+      final previousToday = previous.todayWorkCode;
+      final previousStep = _sequence!.byCode(previousToday);
       final requiredInspection =
-          previousStep != null && templateForWorkItem(previousStep.secondHalf) != null;
-
+          previousStep != null && templateForWorkItem(previousStep.name) != null;
       if (requiredInspection) {
         final inspected = await _repo.getLatestInspectionFor(
           _draft.project.id!,
@@ -83,33 +90,19 @@ class _StepTodayProgressState extends State<StepTodayProgress> {
         );
         if (!mounted) return;
         if (inspected == null) {
-          // The previous report's 要徑 was never inspected — force this
-          // report back onto that same step (instead of advancing to
-          // whatever it planned as tomorrow's) until it's inspected.
           _lockedToPath = previousToday;
           _lockedBecauseUninspected = true;
-          _draft.todayCriticalPath = _lockedToPath;
+          _draft.todayWorkCode = _lockedToPath;
+          _draft.todayWorkVer = _sequence!.ver;
           _draft.touch();
-          setState(() => _loadingLock = false);
-          return;
         }
       }
-
-      if (previous.tomorrowCriticalPath != null) {
-        // Rule 3: not the project's first report — today's 要徑 is locked to
-        // whatever the previous report planned as tomorrow's.
-        _lockedToPath = previous.tomorrowCriticalPath;
-        _draft.todayCriticalPath = _lockedToPath;
-        _draft.touch();
-      }
-      // else: previous report never set a tomorrowCriticalPath — leave it as
-      // a free choice.
     }
-    // else: rule 1 — project's very first report — leave it as a free choice.
     setState(() => _loadingLock = false);
   }
 
   void _syncFromDraft() {
+    _maybeResolveLock();
     if (_controller.text != _draft.todayProgress) {
       _controller.text = _draft.todayProgress;
     }
@@ -146,7 +139,7 @@ class _StepTodayProgressState extends State<StepTodayProgress> {
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: AppColors.border),
                   ),
-                  child: _loadingLock
+                  child: (_loadingLock || _draft.sequenceLoading)
                       ? const Center(
                           child: SizedBox(
                             width: 18,
@@ -157,25 +150,24 @@ class _StepTodayProgressState extends State<StepTodayProgress> {
                       : DropdownButtonHideUnderline(
                           child: DropdownButton<String>(
                             isExpanded: true,
-                            hint: const Text('請選擇要徑'),
-                            value: _draft.todayCriticalPath,
-                            items: _criticalPathSteps
-                                .map(
-                                  (s) => DropdownMenuItem(
-                                    value: s.label,
-                                    child: Text(
-                                      '${s.number}. ${s.label}',
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                )
-                                .toList(),
+                            hint: Text(
+                              _sequence == null ? '尚無要徑順序' : '請選擇要徑',
+                            ),
+                            value: _draft.todayWorkCode,
+                            items: workDropdownItems(
+                              _sequence,
+                              _draft.todayWorkCode,
+                              only: _sequence?.itemsFrom(_floorCode),
+                            ),
                             // Locked once rule 3 applies — this step is only
                             // a free choice on the project's first report.
                             onChanged: _lockedToPath != null
                                 ? null
                                 : (v) {
-                                    setState(() => _draft.todayCriticalPath = v);
+                                    setState(() {
+                                      _draft.todayWorkCode = v;
+                                      _draft.todayWorkVer = _sequence?.ver;
+                                    });
                                     _draft.touch();
                                   },
                           ),
@@ -187,22 +179,26 @@ class _StepTodayProgressState extends State<StepTodayProgress> {
                 height: 48,
                 child: OutlinedButton(
                   onPressed: () {
-                    final selectedLabel = _draft.todayCriticalPath;
-                    if (selectedLabel == null) {
+                    final selectedCode = _draft.todayWorkCode;
+                    if (selectedCode == null) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('請先選擇目前主要徑')),
                       );
                       return;
                     }
-                    final step = _criticalPathSteps.firstWhere(
-                      (s) => s.label == selectedLabel,
-                    );
+                    final step = _sequence?.byCode(selectedCode);
+                    if (step == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('目前的要徑順序找不到這個工項')),
+                      );
+                      return;
+                    }
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => CriticalPathInspectionScreen(
                           project: _draft.project,
-                          criticalPathLabel: step.label,
-                          workItemName: step.secondHalf,
+                          workCode: step.code,
+                          workItemName: step.name,
                         ),
                       ),
                     );
@@ -212,12 +208,29 @@ class _StepTodayProgressState extends State<StepTodayProgress> {
               ),
             ],
           ),
+          SequenceStatusLine(
+            sequence: _sequence,
+            loading: _draft.sequenceLoading,
+            fromCache: _draft.sequenceFromCache,
+            error: _draft.sequenceError,
+          ),
+          if (_floorCode != null && _sequence?.byCode(_floorCode) != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '今日要徑只能是昨天的「${_nameOf(_floorCode!)}」或它後面的項目',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
           if (_lockedToPath != null) ...[
             const SizedBox(height: 4),
             Text(
               _lockedBecauseUninspected
-                  ? '前一個要徑「$_lockedToPath」尚未完成查驗，今日要徑已鎖定於此，請完成查驗後才能繼續下一步'
-                  : '依前一份報表規劃，今日要徑已鎖定，不可自行更改',
+                  ? '前一個要徑「${_nameOf(_lockedToPath!)}」尚未完成查驗，今日要徑已鎖定於此，請完成查驗後才能繼續下一步'
+                  : '',
               style: TextStyle(
                 fontSize: 12,
                 color: _lockedBecauseUninspected

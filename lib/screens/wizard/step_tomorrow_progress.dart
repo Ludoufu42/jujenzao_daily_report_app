@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../db/report_repository.dart';
-import '../../models/critical_path.dart';
 import '../../models/inspection_checklist.dart';
+import '../../models/work_sequence.dart';
 import '../../theme.dart';
+import '../../widgets/work_dropdown.dart';
 import '../../wizard/report_draft.dart';
 
 class StepTomorrowProgress extends StatefulWidget {
@@ -26,7 +27,6 @@ class _StepTomorrowProgressState extends State<StepTomorrowProgress> {
   late final ReportDraft _draft;
   late final TextEditingController _progressController;
   late final TextEditingController _notesController;
-  late final List<CriticalPathStep> _criticalPathSteps;
   bool _checkingInspection = false;
 
   @override
@@ -36,10 +36,12 @@ class _StepTomorrowProgressState extends State<StepTomorrowProgress> {
     _progressController = TextEditingController(text: _draft.tomorrowProgress);
     _notesController = TextEditingController(text: _draft.notes);
     _draft.addListener(_syncFromDraft);
-    _criticalPathSteps = generateCriticalPathSteps(_draft.project);
   }
 
+  WorkSequence? get _sequence => _draft.sequence;
+
   void _syncFromDraft() {
+    if (mounted) setState(() {}); // 要徑順序下載完要重畫下拉選單
     if (_progressController.text != _draft.tomorrowProgress) {
       _progressController.text = _draft.tomorrowProgress;
     }
@@ -56,15 +58,10 @@ class _StepTomorrowProgressState extends State<StepTomorrowProgress> {
     super.dispose();
   }
 
-  /// Rule 2: 明日要徑 can only be today's 要徑 itself (still working on it) or
-  /// the very next 要徑 after it (today's finished, moving on).
-  List<CriticalPathStep> get _allowedOptions {
-    final today = _draft.todayCriticalPath;
-    if (today == null) return _criticalPathSteps;
-    final current = _criticalPathSteps.where((s) => s.label == today);
-    final next = nextCriticalPathStep(_criticalPathSteps, today);
-    return [...current, ?next];
-  }
+  /// 明日要徑:今日要徑本身或它後面的任何一項,不能是更早的
+  /// (進度只會往前;一天做完兩個要徑,明天也可能跳過一項)。
+  List<WorkItem> get _allowedOptions =>
+      _sequence?.itemsFrom(_draft.todayWorkCode) ?? const [];
 
   @override
   Widget build(BuildContext context) {
@@ -72,9 +69,10 @@ class _StepTomorrowProgressState extends State<StepTomorrowProgress> {
     // If today's selection was cleared/changed since a tomorrow choice was
     // made, drop a now-invalid tomorrow selection rather than show a value
     // that isn't one of the current dropdown items.
-    if (_draft.tomorrowCriticalPath != null &&
-        !options.any((s) => s.label == _draft.tomorrowCriticalPath)) {
-      _draft.tomorrowCriticalPath = null;
+    if (_draft.tomorrowWorkCode != null &&
+        !options.any((s) => s.code == _draft.tomorrowWorkCode)) {
+      _draft.tomorrowWorkCode = null;
+      _draft.tomorrowWorkVer = null;
     }
 
     return StepCard(
@@ -96,22 +94,17 @@ class _StepTomorrowProgressState extends State<StepTomorrowProgress> {
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
                 isExpanded: true,
-                hint: const Text('請選擇要徑'),
-                value: _draft.tomorrowCriticalPath,
-                items: options
-                    .map(
-                      (s) => DropdownMenuItem(
-                        value: s.label,
-                        child: Text(
-                          '${s.number}. ${s.label}',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    )
-                    .toList(),
+                hint: Text(_sequence == null ? '尚無要徑順序' : '請選擇要徑'),
+                value: _draft.tomorrowWorkCode,
+                items: workDropdownItems(
+                  _sequence,
+                  _draft.tomorrowWorkCode,
+                  only: options,
+                ),
                 onChanged: (v) {
                   setState(() {
-                    _draft.tomorrowCriticalPath = v;
+                    _draft.tomorrowWorkCode = v;
+                    _draft.tomorrowWorkVer = _sequence?.ver;
                   });
                   _draft.touch();
                 },
@@ -120,7 +113,7 @@ class _StepTomorrowProgressState extends State<StepTomorrowProgress> {
           ),
           const SizedBox(height: 4),
           const Text(
-            '明日要徑只能選今日要徑本身，或今日要徑的下一項',
+            '明日要徑只能選今日要徑本身，或它後面的項目',
             style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
           ),
           const SizedBox(height: 14),
@@ -151,21 +144,14 @@ class _StepTomorrowProgressState extends State<StepTomorrowProgress> {
     );
   }
 
-  CriticalPathStep? _findStep(String label) {
-    for (final s in _criticalPathSteps) {
-      if (s.label == label) return s;
-    }
-    return null;
-  }
-
   Future<void> _handleFinish() async {
-    final today = _draft.todayCriticalPath;
-    final tomorrow = _draft.tomorrowCriticalPath;
+    final today = _draft.todayWorkCode;
+    final tomorrow = _draft.tomorrowWorkCode;
 
     if (today != null && tomorrow != null && tomorrow != today) {
-      final todayStep = _findStep(today);
+      final todayStep = _sequence?.byCode(today);
       final requiresInspection =
-          todayStep != null && templateForWorkItem(todayStep.secondHalf) != null;
+          todayStep != null && templateForWorkItem(todayStep.name) != null;
 
       if (requiresInspection) {
         setState(() => _checkingInspection = true);
@@ -177,7 +163,9 @@ class _StepTomorrowProgressState extends State<StepTomorrowProgress> {
         setState(() => _checkingInspection = false);
 
         if (inspected == null) {
-          final proceedAnyway = await _showSkipInspectionWarning(today);
+          final proceedAnyway = await _showSkipInspectionWarning(
+            todayStep.label,
+          );
           if (proceedAnyway != true) return;
         }
       }

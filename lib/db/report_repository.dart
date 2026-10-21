@@ -70,7 +70,7 @@ class EquipmentEntryInput {
 
 /// Storage-agnostic contract for all report/project/trade-type/inspection
 /// persistence. [SqliteReportRepository] is the original on-device
-/// implementation; a Dropbox-backed implementation can be swapped in via
+/// implementation; another implementation can be swapped in via
 /// [instance] without touching any call site, since every screen only ever
 /// depends on this interface (`ReportRepository.instance.xxx()`).
 abstract class ReportRepository {
@@ -83,6 +83,12 @@ abstract class ReportRepository {
   Future<List<Project>> getProjects();
 
   Future<void> deleteProject(int projectId);
+
+  /// 設定(或清除)專案對應的工程管理專案編號。
+  Future<void> updatePlatformProjectId(int projectId, int? platformProjectId);
+
+  /// 依工程管理專案包建立或更新本機專案(以 platformProjectId 對應),回傳本機專案。
+  Future<Project> upsertCloudProject(Project project);
 
   // ---------------- Trade types ----------------
 
@@ -141,7 +147,7 @@ abstract class ReportRepository {
 
   /// Most recent report strictly before [date] — used to lock today's 要徑
   /// choice to whatever the previous report planned as its
-  /// tomorrowCriticalPath (rule: only the project's very first report ever
+  /// tomorrowWorkCode (rule: only the project's very first report ever
   /// gets a free choice of 要徑).
   Future<DailyReport?> getMostRecentReportBefore(int projectId, DateTime date);
 
@@ -198,7 +204,7 @@ abstract class ReportRepository {
   /// project to advance to the next one.
   Future<Inspection?> getLatestInspectionFor(
     int projectId,
-    String criticalPathLabel,
+    String workCode,
   );
 
   Future<List<InspectionItemRecord>> getInspectionItems(int inspectionId);
@@ -264,6 +270,36 @@ class SqliteReportRepository implements ReportRepository {
     final db = await _db;
     final rows = await db.query('projects', orderBy: 'id DESC');
     return rows.map(Project.fromMap).toList();
+  }
+
+  @override
+  Future<Project> upsertCloudProject(Project project) async {
+    final db = await _db;
+    final rows = await db.query(
+      'projects',
+      where: 'platform_project_id = ?',
+      whereArgs: [project.platformProjectId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return createProject(project);
+    final id = rows.first['id'] as int;
+    final map = project.toMap()..remove('id');
+    await db.update('projects', map, where: 'id = ?', whereArgs: [id]);
+    return project.copyWith(id: id);
+  }
+
+  @override
+  Future<void> updatePlatformProjectId(
+    int projectId,
+    int? platformProjectId,
+  ) async {
+    final db = await _db;
+    await db.update(
+      'projects',
+      {'platform_project_id': platformProjectId},
+      where: 'id = ?',
+      whereArgs: [projectId],
+    );
   }
 
   @override
@@ -864,13 +900,13 @@ class SqliteReportRepository implements ReportRepository {
   @override
   Future<Inspection?> getLatestInspectionFor(
     int projectId,
-    String criticalPathLabel,
+    String workCode,
   ) async {
     final db = await _db;
     final rows = await db.query(
       'inspections',
-      where: 'project_id = ? AND critical_path_label = ?',
-      whereArgs: [projectId, criticalPathLabel],
+      where: 'project_id = ? AND work_code = ?',
+      whereArgs: [projectId, workCode],
       orderBy: 'created_at DESC',
       limit: 1,
     );

@@ -22,6 +22,10 @@ class Project {
   final int? roofFloors;
   final double? roofFloorAreaPing;
 
+  /// 對應「振愷整合平台」工程管理的專案 id(交付包的 project_id)。
+  /// 有填才會從雲端下載要徑順序、上傳日報。
+  final int? platformProjectId;
+
   const Project({
     this.id,
     required this.name,
@@ -39,9 +43,10 @@ class Project {
     this.typicalFloorAreaPing,
     this.roofFloors,
     this.roofFloorAreaPing,
+    this.platformProjectId,
   });
 
-  Project copyWith({int? id}) => Project(
+  Project copyWith({int? id, int? platformProjectId}) => Project(
     id: id ?? this.id,
     name: name,
     companyName: companyName,
@@ -58,6 +63,7 @@ class Project {
     typicalFloorAreaPing: typicalFloorAreaPing,
     roofFloors: roofFloors,
     roofFloorAreaPing: roofFloorAreaPing,
+    platformProjectId: platformProjectId ?? this.platformProjectId,
   );
 
   Map<String, Object?> toMap() => {
@@ -77,6 +83,7 @@ class Project {
     'typical_floor_area_ping': typicalFloorAreaPing,
     'roof_floors': roofFloors,
     'roof_floor_area_ping': roofFloorAreaPing,
+    'platform_project_id': platformProjectId,
   };
 
   factory Project.fromMap(Map<String, Object?> map) => Project(
@@ -101,5 +108,6 @@ class Project {
         ?.toDouble(),
     roofFloors: map['roof_floors'] as int?,
     roofFloorAreaPing: (map['roof_floor_area_ping'] as num?)?.toDouble(),
+    platformProjectId: map['platform_project_id'] as int?,
   );
 }

@@ -8,6 +8,7 @@ import '../../db/report_repository.dart';
 import '../../models/weather.dart';
 import '../../services/backup_service.dart';
 import '../../services/pdf_service.dart';
+import '../../services/report_upload.dart';
 import '../../theme.dart';
 import '../../widgets/signature_pad_dialog.dart';
 import '../../wizard/report_draft.dart';
@@ -41,8 +42,9 @@ class _StepPreviewState extends State<StepPreview> {
     _future = ReportPreviewData.build(context.read<ReportDraft>(), _repo);
   }
 
-  Future<void> _saveReport(ReportDraft draft) async {
-    if (_saved) return;
+  /// 回傳要顯示給使用者的結果文字(已經存過就回傳 null)。
+  Future<String?> _saveReport(ReportDraft draft) async {
+    if (_saved) return null;
     final laborInputs = draft.laborEntries.entries
         .map(
           (e) => LaborEntryInput(
@@ -104,8 +106,7 @@ class _StepPreviewState extends State<StepPreview> {
     }
     _saved = true;
 
-    // Every completed report triggers a dated "time machine" backup, kept
-    // locally and mirrored to Dropbox if the user has linked an account.
+    // Every completed report triggers a dated local "time machine" backup.
     // Backup failure must never block the save the user actually asked for.
     try {
       await BackupService.instance.exportBackup();
@@ -113,16 +114,19 @@ class _StepPreviewState extends State<StepPreview> {
       // Swallowed deliberately: the daily report itself is already saved;
       // a failed incidental backup shouldn't surface as a save failure.
     }
+
+    // 日報產生後自動上傳雲端(R2);失敗只提示,本機已存好。
+    return uploadReportToCloud(draft, await _future!);
   }
 
   Future<void> _onSaveReportPressed(ReportDraft draft) async {
     setState(() => _busy = true);
     try {
-      await _saveReport(draft);
+      final message = await _saveReport(draft);
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('已儲存日報')));
+        ).showSnackBar(SnackBar(content: Text(message ?? '已儲存日報')));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -137,7 +141,12 @@ class _StepPreviewState extends State<StepPreview> {
     if (signature == null) return;
     setState(() => _busy = true);
     try {
-      await _saveReport(draft);
+      final message = await _saveReport(draft);
+      if (message != null && mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      }
       final bytes = await PdfService.generate(
         draft: draft,
         data: data,

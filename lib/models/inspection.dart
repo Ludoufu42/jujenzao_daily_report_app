@@ -8,9 +8,9 @@ class Inspection {
   final int? id;
   final int projectId;
 
-  /// The 要徑 step this inspection covers (CriticalPathStep.label), e.g.
-  /// "地上三樓放樣工程".
-  final String criticalPathLabel;
+  /// The 要徑 work item this inspection covers: the 工項固定代號 from the
+  /// 工程管理 sequence delivery package (WorkItem.code), e.g. "T102".
+  final String workCode;
   final String templateName;
   final String? inspectorSignaturePath;
   final String? pdfPath;
@@ -19,7 +19,7 @@ class Inspection {
   const Inspection({
     this.id,
     required this.projectId,
-    required this.criticalPathLabel,
+    required this.workCode,
     required this.templateName,
     this.inspectorSignaturePath,
     this.pdfPath,
@@ -29,7 +29,7 @@ class Inspection {
   Inspection copyWith({int? id, String? pdfPath}) => Inspection(
     id: id ?? this.id,
     projectId: projectId,
-    criticalPathLabel: criticalPathLabel,
+    workCode: workCode,
     templateName: templateName,
     inspectorSignaturePath: inspectorSignaturePath,
     pdfPath: pdfPath ?? this.pdfPath,
@@ -39,7 +39,7 @@ class Inspection {
   Map<String, Object?> toMap() => {
     'id': id,
     'project_id': projectId,
-    'critical_path_label': criticalPathLabel,
+    'work_code': workCode,
     'template_name': templateName,
     'inspector_signature_path': inspectorSignaturePath,
     'pdf_path': pdfPath,
@@ -49,7 +49,7 @@ class Inspection {
   factory Inspection.fromMap(Map<String, Object?> map) => Inspection(
     id: map['id'] as int?,
     projectId: map['project_id'] as int,
-    criticalPathLabel: map['critical_path_label'] as String,
+    workCode: map['work_code'] as String,
     templateName: map['template_name'] as String,
     inspectorSignaturePath: map['inspector_signature_path'] as String?,
     pdfPath: map['pdf_path'] as String?,

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../db/report_repository.dart';
 import '../../models/weather.dart';
+import '../../services/cloud_report_sync.dart';
 import '../../theme.dart';
 import '../../wizard/report_draft.dart';
 
@@ -41,6 +42,14 @@ class _StepDateWeatherState extends State<StepDateWeather> {
 
     setState(() => _checkingDate = true);
     try {
+      // 這天雲端上若已有別人(或另一支手機)送出的日報,先載進本機。
+      String? cloudNote;
+      try {
+        cloudNote = (await CloudReportSync()
+                .pullIfNewer(draft.project, picked)
+                .timeout(const Duration(seconds: 10)))
+            .note;
+      } catch (_) {}
       final existing = await _repo.getReportByDate(draft.project.id!, picked);
       if (existing == null) {
         draft.startNewReportFor(
@@ -68,7 +77,7 @@ class _StepDateWeatherState extends State<StepDateWeather> {
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('這天已經有報表，已載入內容供修改')),
+            SnackBar(content: Text(cloudNote ?? '這天已經有報表，已載入內容供修改')),
           );
         }
       }

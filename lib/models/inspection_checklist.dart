@@ -102,9 +102,14 @@ const Map<String, InspectionChecklistTemplate> kInspectionTemplatesBySecondHalf 
   '樓層灌漿': _floorPourTemplate,
 };
 
-/// Looks up the checklist template for a 要徑 step by its work-item name
-/// (CriticalPathStep.secondHalf, e.g. "放樣工程" or "外模組立"). Returns null
-/// when that step has no defined checklist (inspection not required).
-InspectionChecklistTemplate? templateForWorkItem(String secondHalf) {
-  return kInspectionTemplatesBySecondHalf[secondHalf];
+/// Looks up the checklist template for a 要徑 work item by its name from the
+/// 工程管理 delivery package (e.g. "地上二樓 放樣工程" or "外模組立"): the
+/// template whose key appears in the name. Returns null when that item has
+/// no defined checklist (inspection not required). The item itself is always
+/// identified by its fixed code — the name is only used to pick a checklist.
+InspectionChecklistTemplate? templateForWorkItem(String itemName) {
+  for (final entry in kInspectionTemplatesBySecondHalf.entries) {
+    if (itemName.contains(entry.key)) return entry.value;
+  }
+  return null;
 }

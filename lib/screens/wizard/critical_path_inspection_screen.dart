@@ -13,7 +13,6 @@ import '../../db/report_repository.dart';
 import '../../models/inspection.dart';
 import '../../models/inspection_checklist.dart';
 import '../../models/project.dart';
-import '../../services/dropbox_service.dart';
 import '../../services/inspection_pdf_service.dart';
 import '../../services/photo_import_service.dart';
 import '../../services/web_blob_store.dart';
@@ -23,13 +22,14 @@ import '../../widgets/signature_pad_dialog.dart';
 
 class CriticalPathInspectionScreen extends StatefulWidget {
   final Project project;
-  final String criticalPathLabel;
+  /// 工項固定代號(工程管理交付包的 code),查驗紀錄以它識別。
+  final String workCode;
   final String workItemName;
 
   const CriticalPathInspectionScreen({
     super.key,
     required this.project,
-    required this.criticalPathLabel,
+    required this.workCode,
     required this.workItemName,
   });
 
@@ -49,6 +49,9 @@ class _CriticalPathInspectionScreenState
   final List<String> _photoPaths = [];
   Uint8List? _signature;
   bool _busy = false;
+
+  /// 畫面與 PDF 顯示用:「T102 假設工程 圍籬施作」。識別只用 [widget.workCode]。
+  String get _label => '${widget.workCode} ${widget.workItemName}';
 
   @override
   void initState() {
@@ -135,7 +138,7 @@ class _CriticalPathInspectionScreenState
       final inspectionId = await _repo.createInspection(
         inspection: Inspection(
           projectId: widget.project.id!,
-          criticalPathLabel: widget.criticalPathLabel,
+          workCode: widget.workCode,
           templateName: _template.templateName,
           inspectorSignaturePath: sigPath,
           createdAt: now,
@@ -146,7 +149,7 @@ class _CriticalPathInspectionScreenState
 
       final pdfBytes = await InspectionPdfService.generate(
         project: widget.project,
-        criticalPathLabel: widget.criticalPathLabel,
+        criticalPathLabel: _label,
         templateName: _template.templateName,
         items: itemRecords,
         photoPaths: _photoPaths,
@@ -158,7 +161,7 @@ class _CriticalPathInspectionScreenState
       // 加上 (2)(3)... 避免覆蓋掉前一次查驗的 PDF。
       String sanitize(String s) => s.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
       final baseName =
-          '${sanitize(widget.project.name)}${sanitize(widget.criticalPathLabel)}'
+          '${sanitize(widget.project.name)}${sanitize(_label)}'
           '${DateFormat('yyyyMMdd').format(now)}';
 
       final String pdfPath;
@@ -179,25 +182,11 @@ class _CriticalPathInspectionScreenState
       }
       await _repo.updateInspectionPdfPath(inspectionId, pdfPath);
 
-      var uploadedToCloud = false;
-      if (!kIsWeb) {
-        try {
-          if (await DropboxService.instance.isLinked()) {
-            await DropboxService.instance.uploadFile(
-              pdfPath,
-              '/inspections/${p.basename(pdfPath)}',
-            );
-            uploadedToCloud = true;
-          }
-        } catch (_) {
-          // Best-effort — the inspection record itself is already saved.
-        }
-      }
-
+      // 查驗 PDF 目前只存本機;員工端的檔案上傳(Google 登入版)之後再做。
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(uploadedToCloud ? '查驗紀錄已儲存並上傳 Dropbox' : '查驗紀錄已儲存（未上傳雲端）'),
+          content: Text('查驗紀錄已儲存（尚未上傳雲端）'),
         ),
       );
       await Printing.layoutPdf(onLayout: (format) async => pdfBytes);
@@ -256,7 +245,7 @@ class _CriticalPathInspectionScreenState
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          widget.criticalPathLabel,
+          _label,
           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
         ),
         const SizedBox(height: 12),
@@ -273,7 +262,7 @@ class _CriticalPathInspectionScreenState
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          widget.criticalPathLabel,
+          _label,
           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
         ),
         Text(

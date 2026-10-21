@@ -7,6 +7,7 @@ import '../models/material_entry.dart';
 import '../models/project.dart';
 import '../models/report_photo.dart';
 import '../models/weather.dart';
+import '../models/work_sequence.dart';
 
 class LaborDraftEntry {
   double? morning;
@@ -58,16 +59,29 @@ class ReportDraft extends ChangeNotifier {
   /// the per-project backfill count.
   bool isBackfillEntry = false;
 
-  /// 目前主要徑 — which critical-path location this report's progress is
-  /// about. Options are meant to be generated from the project's 專案概述
-  /// floor data; exact generation rule TBD, so this is just a plain string
-  /// selection for now.
-  String? todayCriticalPath;
+  /// 工程管理推播的要徑順序(啟動時從 R2 下載,沒網路用上次的快取)。
+  WorkSequence? sequence;
+  bool sequenceLoading = true;
+  bool sequenceFromCache = false;
+  String? sequenceError;
+
+  void setSequence(WorkSequence? seq, {bool fromCache = false, String? error}) {
+    sequence = seq;
+    sequenceFromCache = fromCache;
+    sequenceError = error;
+    sequenceLoading = false;
+    notifyListeners();
+  }
+
+  /// 今日要徑 — 工程管理要徑順序交付包的工項固定代號,以及選擇當下的交付包版本號。
+  String? todayWorkCode;
+  int? todayWorkVer;
 
   String todayProgress = '';
 
-  /// 明日要徑 — mirrors [todayCriticalPath] but for tomorrow's planned work.
-  String? tomorrowCriticalPath;
+  /// 明日要徑 — mirrors [todayWorkCode] but for tomorrow's planned work.
+  String? tomorrowWorkCode;
+  int? tomorrowWorkVer;
 
   String tomorrowProgress = '';
   String notes = '';
@@ -98,9 +112,11 @@ class ReportDraft extends ChangeNotifier {
     existingReportId = null;
     isBackfillEntry = isBackfill;
     // Re-derived by StepTodayProgress on init (looks up the previous
-    // report's tomorrowCriticalPath to lock this day's choice, per rule 3).
-    todayCriticalPath = null;
-    tomorrowCriticalPath = null;
+    // report's tomorrowWorkCode to lock this day's choice, per rule 3).
+    todayWorkCode = null;
+    todayWorkVer = null;
+    tomorrowWorkCode = null;
+    tomorrowWorkVer = null;
     todayProgress = '';
     tomorrowProgress = '';
     notes = '';
@@ -127,8 +143,10 @@ class ReportDraft extends ChangeNotifier {
     isBackfillEntry = false;
     weatherAm = report.weatherAm;
     weatherPm = report.weatherPm;
-    todayCriticalPath = report.todayCriticalPath;
-    tomorrowCriticalPath = report.tomorrowCriticalPath;
+    todayWorkCode = report.todayWorkCode;
+    todayWorkVer = report.todayWorkVer;
+    tomorrowWorkCode = report.tomorrowWorkCode;
+    tomorrowWorkVer = report.tomorrowWorkVer;
     todayProgress = report.todayProgressText;
     tomorrowProgress = report.tomorrowProgressText;
     notes = report.notesText;
@@ -182,12 +200,14 @@ class ReportDraft extends ChangeNotifier {
 
   void resetTodayProgress() {
     todayProgress = '';
-    todayCriticalPath = null;
+    todayWorkCode = null;
+    todayWorkVer = null;
     notifyListeners();
   }
 
   void resetTomorrowProgressAndNotes() {
-    tomorrowCriticalPath = null;
+    tomorrowWorkCode = null;
+    tomorrowWorkVer = null;
     tomorrowProgress = '';
     notes = '';
     notifyListeners();
@@ -225,8 +245,10 @@ class DailyReportBuilder {
       weatherAm: draft.weatherAm,
       weatherPm: draft.weatherPm,
       isRainOrHoliday: isRainOrHoliday,
-      todayCriticalPath: draft.todayCriticalPath,
-      tomorrowCriticalPath: draft.tomorrowCriticalPath,
+      todayWorkCode: draft.todayWorkCode,
+      todayWorkVer: draft.todayWorkVer,
+      tomorrowWorkCode: draft.tomorrowWorkCode,
+      tomorrowWorkVer: draft.tomorrowWorkVer,
       todayProgressText: draft.todayProgress,
       tomorrowProgressText: draft.tomorrowProgress,
       notesText: draft.notes,
