@@ -7,6 +7,7 @@ import '../models/material_entry.dart';
 import '../models/project.dart';
 import '../models/report_photo.dart';
 import '../models/weather.dart';
+import '../services/app_clock.dart';
 import '../models/work_sequence.dart';
 
 class LaborDraftEntry {
@@ -39,7 +40,7 @@ class ReportDraft extends ChangeNotifier {
   final Project project;
 
   ReportDraft(this.project) {
-    reportDate = DateTime.now();
+    reportDate = AppClock.now();
   }
 
   late DateTime reportDate;
@@ -191,7 +192,7 @@ class ReportDraft extends ChangeNotifier {
   }
 
   void resetDateWeather() {
-    reportDate = DateTime.now();
+    reportDate = AppClock.now();
     weatherAm = Weather.sunny;
     weatherPm = Weather.sunny;
     isRainOrHoliday = false;
@@ -253,7 +254,7 @@ class DailyReportBuilder {
       tomorrowProgressText: draft.tomorrowProgress,
       notesText: draft.notes,
       isBackfilled: draft.isBackfillEntry,
-      createdAt: DateTime.now(),
+      createdAt: AppClock.now(),
     );
   }
 }

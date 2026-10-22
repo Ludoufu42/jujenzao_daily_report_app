@@ -9,6 +9,10 @@ class CloudConfig {
     defaultValue: 'https://jujenzao-daily.ludoufu42.workers.dev',
   );
 
+  /// 貝塔版(`--dart-define=BETA=true`):多一個「模擬時鐘」面板,可以把日期
+  /// 調成專案期間的任何一天、一鍵自動跑完整個專案的日報。正式版沒有。
+  static const bool isBeta = bool.fromEnvironment('BETA');
+
   /// OAuth 用戶端 ID(網頁應用程式)。不是機密。
   static const String googleClientId = String.fromEnvironment(
     'GOOGLE_CLIENT_ID',

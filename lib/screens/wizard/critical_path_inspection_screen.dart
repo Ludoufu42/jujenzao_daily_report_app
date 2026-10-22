@@ -13,6 +13,7 @@ import '../../db/report_repository.dart';
 import '../../models/inspection.dart';
 import '../../models/inspection_checklist.dart';
 import '../../models/project.dart';
+import '../../services/app_clock.dart';
 import '../../services/inspection_pdf_service.dart';
 import '../../services/photo_import_service.dart';
 import '../../services/web_blob_store.dart';
@@ -112,7 +113,7 @@ class _CriticalPathInspectionScreenState
 
     setState(() => _busy = true);
     try {
-      final now = DateTime.now();
+      final now = AppClock.now();
       final itemRecords = _template.items
           .map(
             (def) => InspectionItemRecord(

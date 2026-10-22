@@ -7,11 +7,13 @@ import '../db/report_repository.dart';
 import '../models/project.dart';
 import '../services/auth_user.dart';
 import '../services/backup_service.dart';
+import '../services/cloud_config.dart';
 import '../services/cloud_service.dart';
 import '../services/google_auth.dart';
 import '../services/project_sync.dart';
 import '../theme.dart';
 import '../widgets/confirm_dialogs.dart';
+import 'beta_panel.dart';
 import 'wizard/wizard_screen.dart';
 
 /// 登入後的首頁:專案清單來自工程管理的推播(依名單決定能看哪些),員工不建專案。
@@ -207,15 +209,21 @@ class _HomeScreenState extends State<HomeScreen> {
                         )
                       else
                         ..._projects.map(
-                          (p) => _ProjectTile(
-                            project: p,
-                            onNewReport: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => WizardScreen(project: p),
-                                ),
-                              );
-                            },
+                          (p) => Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _ProjectTile(
+                                project: p,
+                                onNewReport: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => WizardScreen(project: p),
+                                    ),
+                                  );
+                                },
+                              ),
+                              if (CloudConfig.isBeta) BetaPanel(project: p),
+                            ],
                           ),
                         ),
                     ],

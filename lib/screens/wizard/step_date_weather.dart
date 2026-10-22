@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../db/report_repository.dart';
 import '../../models/weather.dart';
+import '../../services/app_clock.dart';
 import '../../services/cloud_report_sync.dart';
 import '../../theme.dart';
 import '../../wizard/report_draft.dart';
@@ -30,11 +31,13 @@ class _StepDateWeatherState extends State<StepDateWeather> {
       a.year == b.year && a.month == b.month && a.day == b.day;
 
   Future<void> _pickDate(ReportDraft draft) async {
-    final now = DateTime.now();
+    final now = AppClock.now();
+    // 專案開工日還沒到時(提早建立的專案),選日期的範圍不能從未來開始,否則會當掉。
+    final start = draft.project.startDate;
     final picked = await showDatePicker(
       context: context,
-      initialDate: draft.reportDate,
-      firstDate: draft.project.startDate,
+      initialDate: draft.reportDate.isAfter(now) ? now : draft.reportDate,
+      firstDate: start.isAfter(now) ? now : start,
       lastDate: now,
       helpText: '選擇日報日期（可選過去日期進行補登或修改）',
     );

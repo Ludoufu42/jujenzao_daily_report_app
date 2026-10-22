@@ -1,6 +1,7 @@
 import 'package:intl/intl.dart';
 
 import '../wizard/report_draft.dart';
+import 'app_clock.dart';
 import '../wizard/report_preview_data.dart';
 import 'cloud_report_sync.dart';
 import 'cloud_service.dart';
@@ -18,7 +19,7 @@ Map<String, Object?> buildReportPayload(
     'project_id': project.platformProjectId,
     'project_name': project.name,
     'report_date': DateFormat('yyyy-MM-dd').format(draft.reportDate),
-    'uploaded_at': DateTime.now().toIso8601String(),
+    'uploaded_at': AppClock.now().toIso8601String(),
     'is_backfill': draft.isBackfillEntry,
     'weather_am': draft.weatherAm.name,
     'weather_pm': draft.weatherPm.name,

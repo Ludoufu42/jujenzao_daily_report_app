@@ -9,6 +9,7 @@ import '../../models/weather.dart';
 import '../../services/backup_service.dart';
 import '../../services/pdf_service.dart';
 import '../../services/report_upload.dart';
+import '../../wizard/report_saver.dart';
 import '../../theme.dart';
 import '../../widgets/signature_pad_dialog.dart';
 import '../../wizard/report_draft.dart';
@@ -45,65 +46,7 @@ class _StepPreviewState extends State<StepPreview> {
   /// 回傳要顯示給使用者的結果文字(已經存過就回傳 null)。
   Future<String?> _saveReport(ReportDraft draft) async {
     if (_saved) return null;
-    final laborInputs = draft.laborEntries.entries
-        .map(
-          (e) => LaborEntryInput(
-            tradeTypeId: e.key,
-            morningCount: e.value.morning ?? 0,
-            afternoonCount: e.value.afternoon ?? 0,
-            isSubcontracted: e.value.isSubcontracted,
-            vendor: e.value.vendor,
-            todayContent: e.value.todayContent,
-            tomorrowContent: e.value.tomorrowContent,
-          ),
-        )
-        .toList();
-    final materialInputs = draft.materialEntries.entries
-        .map(
-          (e) => MaterialEntryInput(
-            tradeTypeId: e.key,
-            quantity: e.value.quantity ?? 0,
-            usageLocation: e.value.usageLocation,
-          ),
-        )
-        .toList();
-    final equipmentInputs = draft.equipmentEntries.entries
-        .map(
-          (e) => EquipmentEntryInput(
-            tradeTypeId: e.key,
-            quantity: e.value.quantity ?? 0,
-            isSubcontracted: e.value.isSubcontracted,
-            vendor: e.value.vendor,
-            todayContent: e.value.todayContent,
-            tomorrowContent: e.value.tomorrowContent,
-          ),
-        )
-        .toList();
-
-    final rainyWeathers = {'rainy', 'heavyRain', 'typhoon'};
-    final isRainOrHoliday =
-        rainyWeathers.contains(draft.weatherAm.name) ||
-        rainyWeathers.contains(draft.weatherPm.name);
-
-    final report = DailyReportBuilder.build(draft, isRainOrHoliday);
-    if (draft.existingReportId != null) {
-      await _repo.updateDailyReportWithEntries(
-        report: report,
-        laborInputs: laborInputs,
-        materialInputs: materialInputs,
-        equipmentInputs: equipmentInputs,
-        photoPaths: draft.photoPaths,
-      );
-    } else {
-      final newId = await _repo.createDailyReportWithEntries(
-        report: report,
-        laborInputs: laborInputs,
-        materialInputs: materialInputs,
-        equipmentInputs: equipmentInputs,
-        photoPaths: draft.photoPaths,
-      );
-      draft.existingReportId = newId;
-    }
+    await persistDraft(draft, _repo);
     _saved = true;
 
     // Every completed report triggers a dated local "time machine" backup.

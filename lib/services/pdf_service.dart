@@ -20,14 +20,26 @@ const _chartColors = [
 ];
 
 class PdfService {
+  // 中文字型很大,下載一次就留著用(原本每產生一份 PDF 都重新下載)。
+  static Future<List<pw.Font>>? _fonts;
+
+  static Future<List<pw.Font>> _loadFonts() => _fonts ??= Future.wait([
+    PdfGoogleFonts.notoSansTCRegular(),
+    PdfGoogleFonts.notoSansTCMedium(),
+  ]).catchError((Object e) {
+    _fonts = null; // 下載失敗下次再試
+    throw e;
+  });
+
   static Future<Uint8List> generate({
     required ReportDraft draft,
     required ReportPreviewData data,
     required List<String> photoPaths,
     Uint8List? supervisorSignature,
   }) async {
-    final font = await PdfGoogleFonts.notoSansTCRegular();
-    final boldFont = await PdfGoogleFonts.notoSansTCMedium();
+    final fonts = await _loadFonts();
+    final font = fonts[0];
+    final boldFont = fonts[1];
 
     final doc = pw.Document(
       theme: pw.ThemeData.withFont(base: font, bold: boldFont),
