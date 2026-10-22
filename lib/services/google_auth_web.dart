@@ -25,6 +25,20 @@ external JSObject _makeButton();
 @JS('jzGoogle.signOut')
 external void _signOut();
 
+@JS('jzGoogle.inAppBrowser')
+external String _inAppBrowser();
+
+/// 在 LINE、Facebook 等 App 內建瀏覽器裡開啟時回傳它的名稱,否則 null。
+/// Google 不允許在內建瀏覽器登入,畫面要請使用者改用 Safari / Chrome。
+String? inAppBrowserName() {
+  try {
+    final name = _inAppBrowser();
+    return name.isEmpty ? null : name;
+  } catch (_) {
+    return null;
+  }
+}
+
 /// 網頁版 Google 登入(Google Identity Services)。登入結果是 ID token,
 /// 之後每次呼叫 Worker 都帶它;token 約一小時到期,到期時先試著靜默更新。
 class GoogleAuth {

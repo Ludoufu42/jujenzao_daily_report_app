@@ -56,6 +56,19 @@
       }
       return d;
     },
+    // 回傳內建瀏覽器的名稱(LINE、Facebook…),不是內建瀏覽器就回傳空字串。
+    // Google 不允許在這些瀏覽器裡登入,要請使用者改用 Safari / Chrome 開。
+    inAppBrowser: function () {
+      var ua = navigator.userAgent || '';
+      if (/Line\//i.test(ua)) return 'LINE';
+      if (/FBAN|FBAV|FB_IAB/i.test(ua)) return 'Facebook';
+      if (/Instagram/i.test(ua)) return 'Instagram';
+      if (/MicroMessenger/i.test(ua)) return '微信';
+      if (/Messenger/i.test(ua)) return 'Messenger';
+      if (/Twitter/i.test(ua)) return 'Twitter';
+      if (/Android/i.test(ua) && /; wv\)/i.test(ua)) return 'App 內建瀏覽器';
+      return '';
+    },
     signOut: function () {
       try { localStorage.removeItem(KEY); } catch (e) {}
       if (ready()) window.google.accounts.id.disableAutoSelect();

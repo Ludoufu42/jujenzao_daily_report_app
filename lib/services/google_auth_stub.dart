@@ -14,4 +14,6 @@ class GoogleAuth {
   void signOut() => user.value = null;
 }
 
+String? inAppBrowserName() => null;
+
 Widget buildGoogleSignInButton() => const Text('此平台尚未支援 Google 登入');
