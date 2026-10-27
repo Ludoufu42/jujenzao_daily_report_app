@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/project.dart';
 import '../models/project_bundle.dart';
 import '../services/app_clock.dart';
+import '../services/cloud_config.dart';
 import '../services/cloud_service.dart';
 import '../services/report_simulator.dart';
 import '../theme.dart';
@@ -137,6 +138,7 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
   bool _twoSubmits = true;
   bool _withPdf = true;
   final _daysController = TextEditingController();
+  DateTime? _targetEnd = DateTime.tryParse(CloudConfig.betaTargetEnd);
   String? _prepError;
   bool _preparing = false;
 
@@ -174,6 +176,8 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
         twoSubmits: _twoSubmits,
         withPdf: _withPdf,
         maxDays: int.tryParse(_daysController.text.trim()),
+        targetEnd: _targetEnd,
+        seed: 5, // 這一組隨機天氣大約在合約完工日前後完工,拿來示範
       ),
     );
   }
@@ -221,6 +225,33 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
           controller: _daysController,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(labelText: '只跑前幾天（留空 = 跑完整個專案）'),
+        ),
+      ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                _targetEnd == null
+                    ? '目標完工日：用工程管理的預定完工日'
+                    : '目標完工日：${_d(_targetEnd!)}（工期依它推算）',
+              ),
+            ),
+            TextButton(
+              onPressed: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: _targetEnd ?? DateTime(2027, 6, 30),
+                  firstDate: DateTime(2026),
+                  lastDate: DateTime(2100),
+                  helpText: '模擬要在哪一天前後完工（例如合約最後一天）',
+                );
+                if (picked != null) setState(() => _targetEnd = picked);
+              },
+              child: const Text('改'),
+            ),
+          ],
         ),
       ),
       const SizedBox(height: 16),

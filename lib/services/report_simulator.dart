@@ -29,11 +29,16 @@ class SimulationOptions {
   /// 只跑前幾天(null = 跑完整個專案)。
   final int? maxDays;
 
+  /// 目標完工日:模擬的工期依它推算(例如合約工期的最後一天)。
+  /// null = 用工程管理的預定完工日。
+  final DateTime? targetEnd;
+
   const SimulationOptions({
     this.twoSubmits = true,
     this.withPdf = true,
     this.seed = 1,
     this.maxDays,
+    this.targetEnd,
   });
 }
 
@@ -107,7 +112,7 @@ class ReportSimulator {
     var plan = SimulationPlan.generate(
       sequence: bundle.sequence,
       start: bundle.plannedStart ?? project.startDate,
-      targetEnd: bundle.plannedEnd,
+      targetEnd: options.targetEnd ?? bundle.plannedEnd,
       seed: options.seed,
     );
     if (options.maxDays != null && options.maxDays! < plan.length) {

@@ -125,6 +125,23 @@ void main() {
       expect(plan.length, inInclusiveRange(120, 260));
     });
 
+    test('對著合約完工日(2027-06-30,161 個工作天)推算:完工日接近它,且計入的工作天接近 161 減去颱風', () {
+      final contractEnd = DateTime(2027, 6, 30);
+      expect(SimulationPlan.countWorkdays(DateTime(2026, 11, 1), contractEnd), 161);
+      for (final seed in [1, 2, 3]) {
+        final p = SimulationPlan.generate(
+          sequence: seq,
+          start: start,
+          targetEnd: contractEnd,
+          seed: seed,
+        );
+        final gap = p.last.date.difference(contractEnd).inDays;
+        expect(gap.abs(), lessThanOrEqualTo(60), reason: 'seed $seed 完工 ${p.last.date}');
+        final counted = p.where((d) => d.offReason == null).length;
+        expect(counted, inInclusiveRange(120, 175), reason: 'seed $seed');
+      }
+    });
+
     test('同樣的種子產生同樣的計畫;空的順序沒有計畫', () {
       final again = SimulationPlan.generate(
         sequence: seq,

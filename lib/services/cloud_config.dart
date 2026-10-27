@@ -13,6 +13,10 @@ class CloudConfig {
   /// 調成專案期間的任何一天、一鍵自動跑完整個專案的日報。正式版沒有。
   static const bool isBeta = bool.fromEnvironment('BETA');
 
+  /// 貝塔版自動模擬的「目標完工日」(YYYY-MM-DD,例如合約工期的最後一天)。
+  /// 留空 = 用工程管理的預定完工日。`--dart-define=BETA_TARGET_END=2027-06-30`
+  static const String betaTargetEnd = String.fromEnvironment('BETA_TARGET_END');
+
   /// OAuth 用戶端 ID(網頁應用程式)。不是機密。
   static const String googleClientId = String.fromEnvironment(
     'GOOGLE_CLIENT_ID',
