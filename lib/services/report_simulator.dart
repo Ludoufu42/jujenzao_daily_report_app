@@ -107,6 +107,7 @@ class ReportSimulator {
     var plan = SimulationPlan.generate(
       sequence: bundle.sequence,
       start: bundle.plannedStart ?? project.startDate,
+      targetEnd: bundle.plannedEnd,
       seed: options.seed,
     );
     if (options.maxDays != null && options.maxDays! < plan.length) {
@@ -191,7 +192,7 @@ class ReportSimulator {
     if (options.twoSubmits) {
       // 中午前:只有上午的出工
       draft.todayProgress =
-          '上午:${day.today.name}${day.stopped ? '(天氣停工)' : ''}';
+          '上午:${day.today.name}${day.stopped ? '(${day.offReason})' : ''}';
       draft.tomorrowProgress = '';
       for (final e in draft.laborEntries.values) {
         e.afternoon = null;
@@ -204,7 +205,7 @@ class ReportSimulator {
     draft.todayProgress =
         '模擬第 ${index + 1} 天:${day.today.name}'
         '${day.finished > 0 ? '(完成 ${day.finished} 項)' : ''}'
-        '${day.stopped ? '(天氣停工)' : ''}';
+        '${day.stopped ? '(${day.offReason})' : ''}';
     draft.tomorrowProgress = '預計:${day.tomorrow.name}';
     await _saveAndUpload(
       draft,
@@ -214,7 +215,7 @@ class ReportSimulator {
     );
     state.add(
       '✓ ${_d(day.date)} ${day.today.code}→${day.tomorrow.code}'
-      '${day.stopped ? " 停工" : ""}${day.finished == 2 ? " 一天做完兩項" : ""}',
+      '${day.stopped ? " ${day.offReason}(不計工期)" : ""}${day.finished == 2 ? " 一天做完兩項" : ""}',
     );
   }
 
@@ -268,7 +269,8 @@ class ReportSimulator {
       final labor = List<TradeType>.of(
         types[TradeCategoryType.labor] ?? const [],
       )..shuffle(rng);
-      final crew = day.stopped ? 0 : 3 + rng.nextInt(5);
+      // 不計工期的日子(週末、國定假日、颱風)工地多半沒人,偶爾有人留守。
+      final crew = day.stopped ? rng.nextInt(2) : 3 + rng.nextInt(5);
       for (final t in labor.take(crew)) {
         final sub = rng.nextDouble() < 0.3;
         draft.laborFor(t.id!)

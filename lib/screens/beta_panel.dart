@@ -197,8 +197,9 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
       ),
       const SizedBox(height: 8),
       const Text(
-        '會依工程管理推播的要徑順序,從開工日一天一天填日報(週日不填、豪大雨與颱風停工),'
-        '全部送到開發環境。本機資料庫也會寫入這些日報。',
+        '會依工程管理推播的要徑順序,從開工日一天一天填日報(每天都填,含週六、週日)。'
+        '工期單位是工作天:週末、國定假日、颱風天不計工期、要徑不前進。'
+        '全部送到開發環境,本機資料庫也會寫入這些日報。',
         style: TextStyle(color: AppColors.textSecondary),
       ),
       const SizedBox(height: 12),

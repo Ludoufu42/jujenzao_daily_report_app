@@ -22,9 +22,12 @@ WorkSequence _seq(int n) => WorkSequence(
 void main() {
   group('SimulationPlan', () {
     final seq = _seq(54);
+    final start = DateTime(2026, 11, 2);
+    final end = DateTime(2027, 5, 10);
     final plan = SimulationPlan.generate(
       sequence: seq,
-      start: DateTime(2026, 11, 2),
+      start: start,
+      targetEnd: end,
       seed: 7,
     );
 
@@ -33,43 +36,82 @@ void main() {
       expect(plan.last.isLast, isTrue);
       expect(plan.last.today.code, seq.items.last.code);
       expect(plan.where((d) => d.isLast), hasLength(1));
-      // 54 個工項、平均幾天一項,天數落在合理範圍(不是 2 天也不是 1000 天)。
-      expect(plan.length, inInclusiveRange(60, 400));
     });
 
-    test('週日不施工;日期嚴格遞增', () {
-      expect(plan.any((d) => d.date.weekday == DateTime.sunday), isFalse);
+    test('每個日曆天都填日報(含週六、週日),日期連續、從開工日開始', () {
+      expect(plan.first.date, start);
       for (var i = 1; i < plan.length; i++) {
-        expect(plan[i].date.isAfter(plan[i - 1].date), isTrue);
+        expect(
+          plan[i].date.difference(plan[i - 1].date).inDays,
+          1,
+          reason: '${plan[i - 1].date} 到 ${plan[i].date} 中間少了日子',
+        );
       }
-      expect(plan.first.date, DateTime(2026, 11, 2));
+      expect(plan.any((d) => d.date.weekday == DateTime.sunday), isTrue);
+      expect(plan.any((d) => d.date.weekday == DateTime.saturday), isTrue);
+    });
+
+    test('不計工期的日子(週末、國定假日、颱風):要徑不前進、原因寫清楚', () {
+      final off = plan.where((d) => d.stopped).toList();
+      expect(off, isNotEmpty);
+      for (final d in off) {
+        expect(d.finished, 0, reason: '${d.date} ${d.offReason}');
+        expect(d.tomorrow.code, d.today.code);
+      }
+      // 週末一律不計工期
+      for (final d in plan.where(
+        (d) =>
+            d.date.weekday == DateTime.saturday ||
+            d.date.weekday == DateTime.sunday,
+      )) {
+        expect(d.offReason, isNotNull);
+      }
+      // 國定假日(平日放假)不計工期:2026-12-25 行憲紀念日是週五。
+      final xingxian = plan.firstWhere((d) => d.date == DateTime(2026, 12, 25));
+      expect(xingxian.offReason, '國定假日');
+      // 颱風天(沒有其他原因時)標成颱風
+      final typhoon = plan.where((d) => d.offReason == '颱風');
+      expect(typhoon, isNotEmpty);
+      for (final d in typhoon) {
+        expect(
+          d.weatherAm == Weather.typhoon || d.weatherPm == Weather.typhoon,
+          isTrue,
+        );
+      }
+    });
+
+    test('只有工作日(週一到週五、非國定假日、非颱風)才推進要徑;豪大雨照常施工', () {
+      for (final d in plan.where((d) => d.finished > 0)) {
+        expect(d.date.weekday, lessThanOrEqualTo(DateTime.friday));
+        expect(SimulationPlan.isNationalHoliday(d.date), isFalse);
+        expect(d.offReason, isNull);
+      }
+      final heavy = plan.where(
+        (d) =>
+            (d.weatherAm == Weather.heavyRain ||
+                d.weatherPm == Weather.heavyRain) &&
+            d.offReason == null,
+      );
+      expect(heavy, isNotEmpty);
     });
 
     test('今日要徑絕不早於昨天的今日要徑;明日要徑絕不早於今日', () {
       int idx(String code) => seq.items.indexWhere((i) => i.code == code);
       for (var i = 0; i < plan.length; i++) {
-        expect(idx(plan[i].tomorrow.code), greaterThanOrEqualTo(idx(plan[i].today.code)));
-        if (i > 0) {
-          expect(idx(plan[i].today.code), greaterThanOrEqualTo(idx(plan[i - 1].today.code)));
-          // 昨天的明日要徑 = 今天一開始在做的項目,今日要徑只會在它或它之後。
-          expect(idx(plan[i].today.code), greaterThanOrEqualTo(idx(plan[i - 1].tomorrow.code)));
-        }
-      }
-    });
-
-    test('停工日(豪大雨/颱風)進度不前進', () {
-      final stopped = plan.where((d) => d.stopped).toList();
-      expect(stopped, isNotEmpty);
-      for (final d in stopped) {
-        expect(d.finished, 0);
-        expect(d.tomorrow.code, d.today.code);
         expect(
-          d.weatherAm == Weather.heavyRain ||
-              d.weatherAm == Weather.typhoon ||
-              d.weatherPm == Weather.heavyRain ||
-              d.weatherPm == Weather.typhoon,
-          isTrue,
+          idx(plan[i].tomorrow.code),
+          greaterThanOrEqualTo(idx(plan[i].today.code)),
         );
+        if (i > 0) {
+          expect(
+            idx(plan[i].today.code),
+            greaterThanOrEqualTo(idx(plan[i - 1].today.code)),
+          );
+          expect(
+            idx(plan[i].today.code),
+            greaterThanOrEqualTo(idx(plan[i - 1].tomorrow.code)),
+          );
+        }
       }
     });
 
@@ -77,17 +119,37 @@ void main() {
       expect(plan.any((d) => d.finished == 2), isTrue);
     });
 
+    test('完工日接近預定完工日(依預定完工日推算工期,不是亂跑)', () {
+      final days = plan.last.date.difference(end).inDays;
+      expect(days.abs(), lessThanOrEqualTo(60), reason: '模擬完工 ${plan.last.date}');
+      expect(plan.length, inInclusiveRange(120, 260));
+    });
+
     test('同樣的種子產生同樣的計畫;空的順序沒有計畫', () {
       final again = SimulationPlan.generate(
         sequence: seq,
-        start: DateTime(2026, 11, 2),
+        start: start,
+        targetEnd: end,
         seed: 7,
       );
       expect(again.length, plan.length);
       expect(again.last.date, plan.last.date);
       expect(
-        SimulationPlan.generate(sequence: _seq(0), start: DateTime(2026, 11, 2)),
+        SimulationPlan.generate(sequence: _seq(0), start: start),
         isEmpty,
+      );
+    });
+
+    test('工作日計算:2026 年底(行憲紀念日連假)與一般週別', () {
+      // 2026-12-21(一)~12-27(日):12-25~27 連假,工作日只有 21~24 共 4 天。
+      expect(
+        SimulationPlan.countWorkdays(DateTime(2026, 12, 21), DateTime(2026, 12, 27)),
+        4,
+      );
+      // 2026-11-02(一)~11-08(日):5 個工作日。
+      expect(
+        SimulationPlan.countWorkdays(DateTime(2026, 11, 2), DateTime(2026, 11, 8)),
+        5,
       );
     });
   });
