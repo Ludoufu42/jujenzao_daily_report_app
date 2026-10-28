@@ -22,6 +22,13 @@ class SimDay {
   /// 專案的最後一個要徑項目在這天完成。
   final bool isLast;
 
+  /// 員工忘記填這天的日報。**工期照跑**:這天的天氣、工作日、要徑進度都照常往前,
+  /// 只是這天沒有日報(之後的日報的今日要徑跳得比較多是正常的)。
+  final bool forgot;
+
+  /// 忘記填的日報過幾天才補登(0 = 一直沒補)。
+  final int backfillAfter;
+
   const SimDay({
     required this.date,
     required this.weatherAm,
@@ -31,6 +38,8 @@ class SimDay {
     required this.tomorrow,
     required this.finished,
     required this.isLast,
+    this.forgot = false,
+    this.backfillAfter = 0,
   });
 
   /// 這天不計工期(要徑不前進)。
@@ -53,10 +62,14 @@ class SimulationPlan {
     DateTime? targetEnd,
     int seed = 1,
     int maxDays = 700,
+
+    /// 每天忘記填日報的機率(0 = 都有填)。用另一組亂數決定,不會改變計畫本身。
+    double forgetRate = 0.0,
   }) {
     final items = sequence.items;
     if (items.isEmpty) return const [];
     final rng = Random(seed);
+    final forgetRng = Random(seed + 99);
     final days = <SimDay>[];
     final first = DateTime(start.year, start.month, start.day);
 
@@ -114,6 +127,12 @@ class SimulationPlan {
         }
       }
       final isLast = cur >= items.length;
+      // 第一天與最後一天一定有填;其餘每天有 forgetRate 的機率忘記。
+      final forgot =
+          !isLast && days.isNotEmpty && forgetRng.nextDouble() < forgetRate;
+      final backfillAfter = forgot && forgetRng.nextDouble() < 0.6
+          ? 1 + forgetRng.nextInt(3)
+          : 0;
       final lastIdx = items.length - 1;
       final today = min(todayIdx, lastIdx);
       final tomorrow = max(min(cur, lastIdx), today);
@@ -127,6 +146,8 @@ class SimulationPlan {
           tomorrow: items[tomorrow],
           finished: finished,
           isLast: isLast,
+          forgot: forgot,
+          backfillAfter: backfillAfter,
         ),
       );
       date = date.add(const Duration(days: 1));

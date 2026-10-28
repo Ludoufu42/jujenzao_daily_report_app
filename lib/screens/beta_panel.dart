@@ -137,6 +137,7 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
   ReportSimulator? _sim;
   bool _twoSubmits = true;
   bool _withPdf = true;
+  bool _forget = true;
   final _daysController = TextEditingController();
   DateTime? _targetEnd = DateTime.tryParse(CloudConfig.betaTargetEnd);
   String? _prepError;
@@ -177,6 +178,7 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
         withPdf: _withPdf,
         maxDays: int.tryParse(_daysController.text.trim()),
         targetEnd: _targetEnd,
+        forgetRate: _forget ? 0.04 : 0,
         seed: 5, // 這一組隨機天氣大約在合約完工日前後完工,拿來示範
       ),
     );
@@ -211,6 +213,12 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
         value: _twoSubmits,
         onChanged: (v) => setState(() => _twoSubmits = v ?? true),
         title: const Text('每天送出兩次（中午前、下班前）'),
+        controlAffinity: ListTileControlAffinity.leading,
+      ),
+      CheckboxListTile(
+        value: _forget,
+        onChanged: (v) => setState(() => _forget = v ?? true),
+        title: const Text('模擬員工偶爾忘記填日報（約 4%，工期照跑，部分隔幾天補登）'),
         controlAffinity: ListTileControlAffinity.leading,
       ),
       CheckboxListTile(
@@ -292,6 +300,7 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
               Text(
                 '${s.done}/${s.total} 天　日報上傳 ${s.jsonOk}（失敗 ${s.jsonFailed}）　'
                 'PDF ${s.pdfOk}（失敗 ${s.pdfFailed}）　錯誤 ${s.errors}　'
+                '忘記填 ${s.forgot}　補登 ${s.backfilled}　'
                 '${s.clock.elapsed.inSeconds} 秒',
                 style: const TextStyle(fontSize: 13),
               ),

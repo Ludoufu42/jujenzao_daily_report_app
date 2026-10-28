@@ -73,7 +73,9 @@ void main() {
     final store = <String, Map<String, dynamic>>{};
     var puts = 0;
     cloud.client = MockClient((req) async {
-      final m = RegExp(r'/reports/(\d{4}-\d{2}-\d{2})$').firstMatch(req.url.path);
+      final m = RegExp(
+        r'/reports/(\d{4}-\d{2}-\d{2})$',
+      ).firstMatch(req.url.path);
       if (m == null) return http.Response('nf', 404);
       final date = m.group(1)!;
       if (req.method == 'PUT') {
@@ -95,7 +97,9 @@ void main() {
       start: bundle.plannedStart!,
     );
     final sim = ReportSimulator(project: project, bundle: bundle, repo: repo);
-    await sim.run(const SimulationOptions(twoSubmits: true, withPdf: false));
+    await sim.run(
+      const SimulationOptions(twoSubmits: true, withPdf: false, forgetRate: 0),
+    );
     final s = sim.state;
 
     expect(s.finished, isTrue);
@@ -157,23 +161,143 @@ void main() {
       }
       return http.Response('nf', 404);
     });
-    final sim = ReportSimulator(project: project, bundle: _bundle(), repo: repo);
-    await sim.run(const SimulationOptions(twoSubmits: false, withPdf: false, maxDays: 5));
+    final sim = ReportSimulator(
+      project: project,
+      bundle: _bundle(),
+      repo: repo,
+    );
+    await sim.run(
+      const SimulationOptions(
+        twoSubmits: false,
+        withPdf: false,
+        maxDays: 5,
+        forgetRate: 0,
+      ),
+    );
     expect(sim.state.done, 5);
     expect(puts, 5);
     expect((await repo.getReports(project.id!)), hasLength(5));
 
-    await sim.run(const SimulationOptions(twoSubmits: false, withPdf: false, maxDays: 5));
+    await sim.run(
+      const SimulationOptions(
+        twoSubmits: false,
+        withPdf: false,
+        maxDays: 5,
+        forgetRate: 0,
+      ),
+    );
     expect((await repo.getReports(project.id!)), hasLength(5));
   });
 
   test('雲端一直失敗:中止、不丟例外、錯誤有記下', () async {
     cloud.client = MockClient((req) async => http.Response('boom', 500));
-    final sim = ReportSimulator(project: project, bundle: _bundle(), repo: repo);
-    await sim.run(const SimulationOptions(twoSubmits: false, withPdf: false, maxDays: 10));
+    final sim = ReportSimulator(
+      project: project,
+      bundle: _bundle(),
+      repo: repo,
+    );
+    await sim.run(
+      const SimulationOptions(
+        twoSubmits: false,
+        withPdf: false,
+        maxDays: 10,
+        forgetRate: 0,
+      ),
+    );
     // 上傳失敗只記成「上傳失敗」,本機照存;不會把整個模擬打斷。
     expect(sim.state.finished, isTrue);
     expect(sim.state.jsonFailed, 10);
     expect((await repo.getReports(project.id!)), hasLength(10));
+  });
+
+  test('員工偶爾忘記填:那天沒有日報、工期照跑;有補登的標成補登,要徑與累計仍然正確', () async {
+    final store = <String, Map<String, dynamic>>{};
+    cloud.client = MockClient((req) async {
+      final m = RegExp(
+        r'/reports/(\d{4}-\d{2}-\d{2})$',
+      ).firstMatch(req.url.path);
+      if (m == null) return http.Response('nf', 404);
+      final date = m.group(1)!;
+      if (req.method == 'PUT') {
+        final body = jsonDecode(req.body) as Map<String, dynamic>;
+        final rev = ((store[date]?['rev'] as num?)?.toInt() ?? 0) + 1;
+        store[date] = {...body, 'rev': rev};
+        return http.Response(jsonEncode({'ok': true, 'rev': rev}), 200);
+      }
+      final j = store[date];
+      return j == null
+          ? http.Response('nf', 404)
+          : http.Response.bytes(utf8.encode(jsonEncode(j)), 200);
+    });
+
+    final bundle = _bundle();
+    const rate = 0.2;
+    final plan = SimulationPlan.generate(
+      sequence: bundle.sequence,
+      start: bundle.plannedStart!,
+      forgetRate: rate,
+    );
+    final forgot = plan.where((d) => d.forgot).toList();
+    final backfilled = forgot.where((d) => d.backfillAfter > 0).toList();
+    expect(forgot, isNotEmpty);
+    expect(backfilled, isNotEmpty);
+    expect(forgot.length, greaterThan(backfilled.length)); // 也有一直沒補的
+
+    final sim = ReportSimulator(project: project, bundle: bundle, repo: repo);
+    await sim.run(
+      const SimulationOptions(
+        twoSubmits: true,
+        withPdf: false,
+        forgetRate: rate,
+      ),
+    );
+    final s = sim.state;
+    expect(s.errors, 0, reason: s.log.join('\n'));
+    expect(s.forgot, forgot.length);
+    expect(s.backfilled, backfilled.length);
+
+    // 本機日報 = 計畫天數 - 一直沒補的天數
+    final neverFilled = forgot.where((d) => d.backfillAfter == 0).length;
+    final local = await repo.getReports(project.id!)
+      ..sort((a, b) => a.reportDate.compareTo(b.reportDate));
+    expect(local.length, plan.length - neverFilled);
+    // 補登的日報標成補登,數量與模擬一致
+    expect(await repo.countBackfilledReports(project.id!), backfilled.length);
+    // 完全沒補的那幾天,本機與雲端都沒有日報
+    for (final d in forgot.where((d) => d.backfillAfter == 0)) {
+      final key = CloudReportSync.dateKey(d.date);
+      expect(store.containsKey(key), isFalse);
+      expect(await repo.getReportByDate(project.id!, d.date), isNull);
+    }
+    // 補登的日報送一次(rev 1),正常日是兩次(rev 2)
+    for (final d in backfilled) {
+      expect(store[CloudReportSync.dateKey(d.date)]!['rev'], 1);
+    }
+    expect(
+      plan
+          .where((d) => !d.forgot)
+          .every((d) => store[CloudReportSync.dateKey(d.date)]!['rev'] == 2),
+      isTrue,
+    );
+
+    // 要徑只往前(依順序),即使中間有漏填的日子
+    final codes = bundle.sequence.items.map((i) => i.code).toList();
+    for (var i = 1; i < local.length; i++) {
+      expect(
+        codes.indexOf(local[i].todayWorkCode!),
+        greaterThanOrEqualTo(codes.indexOf(local[i - 1].todayWorkCode!)),
+      );
+    }
+    // 補登插進中間後,出工累計仍然只增不減(補登會重算後面每一天的累計)
+    final cum = <int, double>{};
+    for (final r in local) {
+      for (final e in await repo.getLaborEntries(r.id!)) {
+        expect(e.cumulative, greaterThanOrEqualTo(cum[e.tradeTypeId] ?? 0));
+        cum[e.tradeTypeId] = e.cumulative;
+      }
+    }
+    expect(s.summary, contains('工期照跑'));
+    expect(s.summary, contains('不明原因缺 0 天'));
+    expect(s.summary, contains('一致'));
   });
 }

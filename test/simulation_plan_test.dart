@@ -121,13 +121,20 @@ void main() {
 
     test('完工日接近預定完工日(依預定完工日推算工期,不是亂跑)', () {
       final days = plan.last.date.difference(end).inDays;
-      expect(days.abs(), lessThanOrEqualTo(60), reason: '模擬完工 ${plan.last.date}');
+      expect(
+        days.abs(),
+        lessThanOrEqualTo(60),
+        reason: '模擬完工 ${plan.last.date}',
+      );
       expect(plan.length, inInclusiveRange(120, 260));
     });
 
     test('對著合約完工日(2027-06-30,161 個工作天)推算:完工日接近它,且計入的工作天接近 161 減去颱風', () {
       final contractEnd = DateTime(2027, 6, 30);
-      expect(SimulationPlan.countWorkdays(DateTime(2026, 11, 1), contractEnd), 161);
+      expect(
+        SimulationPlan.countWorkdays(DateTime(2026, 11, 1), contractEnd),
+        161,
+      );
       for (final seed in [1, 2, 3]) {
         final p = SimulationPlan.generate(
           sequence: seq,
@@ -136,10 +143,46 @@ void main() {
           seed: seed,
         );
         final gap = p.last.date.difference(contractEnd).inDays;
-        expect(gap.abs(), lessThanOrEqualTo(60), reason: 'seed $seed 完工 ${p.last.date}');
+        expect(
+          gap.abs(),
+          lessThanOrEqualTo(60),
+          reason: 'seed $seed 完工 ${p.last.date}',
+        );
         final counted = p.where((d) => d.offReason == null).length;
         expect(counted, inInclusiveRange(120, 175), reason: 'seed $seed');
       }
+    });
+
+    test('員工忘記填:不改變計畫本身(工期照跑),第一天與最後一天一定有填', () {
+      final withForget = SimulationPlan.generate(
+        sequence: seq,
+        start: start,
+        targetEnd: end,
+        seed: 7,
+        forgetRate: 0.15,
+      );
+      expect(withForget.length, plan.length);
+      for (var i = 0; i < plan.length; i++) {
+        expect(withForget[i].date, plan[i].date);
+        expect(withForget[i].today.code, plan[i].today.code);
+        expect(withForget[i].tomorrow.code, plan[i].tomorrow.code);
+        expect(withForget[i].offReason, plan[i].offReason);
+      }
+      expect(plan.any((d) => d.forgot), isFalse); // 預設不忘記
+      final forgot = withForget.where((d) => d.forgot).toList();
+      expect(forgot, isNotEmpty);
+      expect(withForget.first.forgot, isFalse);
+      expect(withForget.last.forgot, isFalse);
+      expect(
+        forgot.every((d) => d.backfillAfter >= 0 && d.backfillAfter <= 3),
+        isTrue,
+      );
+      expect(forgot.any((d) => d.backfillAfter > 0), isTrue);
+      expect(forgot.any((d) => d.backfillAfter == 0), isTrue);
+      expect(
+        withForget.where((d) => !d.forgot && d.backfillAfter != 0),
+        isEmpty,
+      );
     });
 
     test('同樣的種子產生同樣的計畫;空的順序沒有計畫', () {
@@ -151,21 +194,24 @@ void main() {
       );
       expect(again.length, plan.length);
       expect(again.last.date, plan.last.date);
-      expect(
-        SimulationPlan.generate(sequence: _seq(0), start: start),
-        isEmpty,
-      );
+      expect(SimulationPlan.generate(sequence: _seq(0), start: start), isEmpty);
     });
 
     test('工作日計算:2026 年底(行憲紀念日連假)與一般週別', () {
       // 2026-12-21(一)~12-27(日):12-25~27 連假,工作日只有 21~24 共 4 天。
       expect(
-        SimulationPlan.countWorkdays(DateTime(2026, 12, 21), DateTime(2026, 12, 27)),
+        SimulationPlan.countWorkdays(
+          DateTime(2026, 12, 21),
+          DateTime(2026, 12, 27),
+        ),
         4,
       );
       // 2026-11-02(一)~11-08(日):5 個工作日。
       expect(
-        SimulationPlan.countWorkdays(DateTime(2026, 11, 2), DateTime(2026, 11, 8)),
+        SimulationPlan.countWorkdays(
+          DateTime(2026, 11, 2),
+          DateTime(2026, 11, 8),
+        ),
         5,
       );
     });

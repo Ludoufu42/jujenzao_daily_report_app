@@ -33,12 +33,16 @@ class SimulationOptions {
   /// null = 用工程管理的預定完工日。
   final DateTime? targetEnd;
 
+  /// 每天員工忘記填日報的機率。忘記的日子工期照跑,約六成過 1~3 天補登。
+  final double forgetRate;
+
   const SimulationOptions({
     this.twoSubmits = true,
     this.withPdf = true,
     this.seed = 1,
     this.maxDays,
     this.targetEnd,
+    this.forgetRate = 0.04,
   });
 }
 
@@ -51,6 +55,8 @@ class SimulationState extends ChangeNotifier {
   int pdfOk = 0;
   int pdfFailed = 0;
   int errors = 0;
+  int forgot = 0;
+  int backfilled = 0;
   bool running = false;
   bool finished = false;
   bool cancelled = false;
@@ -103,6 +109,8 @@ class ReportSimulator {
       ..pdfOk = 0
       ..pdfFailed = 0
       ..errors = 0
+      ..forgot = 0
+      ..backfilled = 0
       ..summary = null
       ..log.clear();
     state.clock
@@ -114,6 +122,7 @@ class ReportSimulator {
       start: bundle.plannedStart ?? project.startDate,
       targetEnd: options.targetEnd ?? bundle.plannedEnd,
       seed: options.seed,
+      forgetRate: options.forgetRate,
     );
     if (options.maxDays != null && options.maxDays! < plan.length) {
       plan = plan.sublist(0, options.maxDays!);
@@ -132,6 +141,8 @@ class ReportSimulator {
     final signature = options.withPdf ? await _makeSignature() : null;
 
     var consecutiveErrors = 0;
+    // 忘記填、之後要補登的日子:(到期是第幾天, 那一天)
+    final pending = <(int, SimDay)>[];
     for (var i = 0; i < plan.length; i++) {
       if (state.cancelled) {
         state.add('已停止(做到第 $i 天)');
@@ -141,7 +152,34 @@ class ReportSimulator {
       state.current = '第 ${i + 1}/${plan.length} 天 ${_d(day.date)}';
       state.changed();
       try {
-        await _simulateDay(day, i, rng, types, options, signature);
+        if (day.forgot) {
+          // 員工忘了填:這天沒有日報,工期照跑(不影響工作天的計算)。
+          state.forgot++;
+          state.add(
+            '○ ${_d(day.date)} 員工忘了填日報(工期照跑)'
+            '${day.backfillAfter > 0 ? ",${day.backfillAfter} 天後補登" : ",一直沒補"}',
+          );
+          if (day.backfillAfter > 0) {
+            pending.add((i + day.backfillAfter, day));
+          }
+        } else {
+          await _simulateDay(day, i, rng, types, options, signature);
+        }
+        // 補登到期的日子:今天(模擬時鐘)補填之前忘記的那天。
+        for (final p in pending.where((p) => p.$1 <= i).toList()) {
+          pending.remove(p);
+          await _simulateDay(
+            p.$2,
+            plan.indexOf(p.$2),
+            rng,
+            types,
+            options,
+            signature,
+            backfill: true,
+            clockDate: day.date,
+          );
+          state.backfilled++;
+        }
         consecutiveErrors = 0;
       } catch (e) {
         state.errors++;
@@ -174,11 +212,15 @@ class ReportSimulator {
     Random rng,
     Map<TradeCategoryType, List<TradeType>> types,
     SimulationOptions options,
-    Uint8List? signature,
-  ) async {
-    AppClock.simulate(day.date);
+    Uint8List? signature, {
+    bool backfill = false,
+    DateTime? clockDate,
+  }) async {
+    // 補登:模擬時鐘是「今天」,日報的日期是之前忘記的那天(App 會標成補登)。
+    AppClock.simulate(clockDate ?? day.date);
     final draft = ReportDraft(project)
       ..reportDate = DateTime(day.date.year, day.date.month, day.date.day)
+      ..isBackfillEntry = backfill
       ..setSequence(bundle.sequence);
     final existing = await _repo.getReportByDate(project.id!, day.date);
     if (existing != null) draft.existingReportId = existing.id;
@@ -194,7 +236,7 @@ class ReportSimulator {
 
     _fillEntries(draft, day, rng, types);
 
-    if (options.twoSubmits) {
+    if (options.twoSubmits && !backfill) {
       // 中午前:只有上午的出工
       draft.todayProgress =
           '上午:${day.today.name}${day.stopped ? '(${day.offReason})' : ''}';
@@ -219,7 +261,7 @@ class ReportSimulator {
       signature: signature,
     );
     state.add(
-      '✓ ${_d(day.date)} ${day.today.code}→${day.tomorrow.code}'
+      '${backfill ? "↺ 補登" : "✓"} ${_d(day.date)} ${day.today.code}→${day.tomorrow.code}'
       '${day.stopped ? " ${day.offReason}(不計工期)" : ""}${day.finished == 2 ? " 一天做完兩項" : ""}',
     );
   }
@@ -352,10 +394,23 @@ class ReportSimulator {
     final localDays = {
       for (final r in local) CloudReportSync.dateKey(r.reportDate),
     };
-    final missing = plan
+    // 沒有日報的日子:忘記填又沒補登的(預期的),以及其他(不預期的,代表有問題)。
+    final absent = plan
         .where((d) => !localDays.contains(CloudReportSync.dateKey(d.date)))
-        .length;
-    lines.add('本機日報 ${local.length} 天(計畫 $planned 天,缺 $missing 天)');
+        .toList();
+    final expectedAbsent = absent.where((d) => d.forgot).length;
+    final unexpected = absent.length - expectedAbsent;
+    lines.add(
+      '本機日報 ${local.length} 天(計畫 $planned 天;員工忘記填 ${state.forgot} 天,'
+      '其中補登 ${state.backfilled} 天、仍缺 $expectedAbsent 天;'
+      '不明原因缺 $unexpected 天)',
+    );
+    lines.add('工期照跑:缺日報的 $expectedAbsent 天,工作天仍照日曆計算(不因漏填而少算)');
+    final backfilledInDb = await _repo.countBackfilledReports(project.id!);
+    lines.add(
+      '補登紀錄 $backfilledInDb 筆(模擬補登 ${state.backfilled} 筆:'
+      '${backfilledInDb == state.backfilled ? "一致" : "不一致"})',
+    );
 
     // 雲端抽查:第一天、最後一天、加三個隨機的日子。
     final pid = project.platformProjectId;
@@ -365,7 +420,7 @@ class ReportSimulator {
         plan.first,
         plan.last,
         for (var i = 0; i < 3; i++) plan[rng.nextInt(plan.length)],
-      };
+      }..removeWhere((d) => d.forgot);
       var bad = 0;
       for (final d in picks) {
         try {

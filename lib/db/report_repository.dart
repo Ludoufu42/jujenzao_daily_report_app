@@ -202,10 +202,7 @@ abstract class ReportRepository {
   /// Most recent inspection for a specific 要徑 step — used to check whether
   /// that step's inspection was already completed before allowing the
   /// project to advance to the next one.
-  Future<Inspection?> getLatestInspectionFor(
-    int projectId,
-    String workCode,
-  );
+  Future<Inspection?> getLatestInspectionFor(int projectId, String workCode);
 
   Future<List<InspectionItemRecord>> getInspectionItems(int inspectionId);
 
@@ -478,14 +475,14 @@ class SqliteReportRepository implements ReportRepository {
         excluded = true;
       }
       if (!excluded && project.excludeBadWeather) {
-        final isSameDayAsUpto = d.year == end.year &&
-            d.month == end.month &&
-            d.day == end.day;
+        final isSameDayAsUpto =
+            d.year == end.year && d.month == end.month && d.day == end.day;
         final key =
             '${d.year.toString().padLeft(4, '0')}-'
             '${d.month.toString().padLeft(2, '0')}-'
             '${d.day.toString().padLeft(2, '0')}';
-        final isRainy = rainyDates.contains(key) ||
+        final isRainy =
+            rainyDates.contains(key) ||
             (isSameDayAsUpto && uptoDateIsBadWeather);
         if (isRainy) excluded = true;
       }
@@ -564,6 +561,13 @@ class SqliteReportRepository implements ReportRepository {
         materialInputs: materialInputs,
         equipmentInputs: equipmentInputs,
         photoPaths: photoPaths,
+      );
+      // 補登:新日報可能插在已經填好的日期中間,它之後每一天的累計都要跟著重算
+      // (沒有更晚的日報時這一步什麼都不做)。
+      await _recalculateCumulativeAfter(
+        txn: txn,
+        projectId: report.projectId,
+        afterDate: report.reportDate,
       );
       return reportId;
     });
