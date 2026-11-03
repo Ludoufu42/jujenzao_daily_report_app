@@ -232,7 +232,7 @@ class _PreviewCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(child: _LaborDonut(data: data)),
+              Expanded(child: LaborDonutBox(data: data)),
               const SizedBox(width: 8),
               Expanded(
                 child: _summaryBox(
@@ -453,9 +453,12 @@ class _PreviewCard extends StatelessWidget {
   }
 }
 
-class _LaborDonut extends StatelessWidget {
+class LaborDonutBox extends StatelessWidget {
   final ReportPreviewData data;
-  const _LaborDonut({required this.data});
+  const LaborDonutBox({required this.data});
+
+  static String _fmt(double v) =>
+      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
 
   @override
   Widget build(BuildContext context) {
@@ -469,9 +472,9 @@ class _LaborDonut extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '人員',
-            style: TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
+          Text(
+            total > 0 ? '人員　共 ${_fmt(total)} 工' : '人員',
+            style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
           ),
           const SizedBox(height: 6),
           if (total <= 0)
@@ -479,55 +482,70 @@ class _LaborDonut extends StatelessWidget {
               '本日無資料',
               style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
             )
-          else
-            Expanded(
-              child: Row(
+          else ...[
+            // 手機上這個框只有約 95px 寬,圖例放在圖的右邊會被擠到 0 寬(只剩色塊)。
+            // 改成圖在上、圖例在下,每個類別顯示「工數與百分比」,圖正中央是總工數。
+            SizedBox(
+              width: 56,
+              height: 56,
+              child: Stack(
+                alignment: Alignment.center,
                 children: [
-                  SizedBox(
-                    width: 60,
-                    height: 60,
-                    child: PieChart(
-                      PieChartData(
-                        sectionsSpace: 1,
-                        centerSpaceRadius: 16,
-                        sections: entries.asMap().entries.map((e) {
-                          return PieChartSectionData(
-                            value: e.value.value,
-                            color: _chartColors[e.key % _chartColors.length],
-                            showTitle: false,
-                            radius: 14,
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: ListView(
-                      children: entries.asMap().entries.map((e) {
-                        final pct = (e.value.value / total * 100).round();
-                        return Row(
-                          children: [
-                            Container(
-                              width: 8,
-                              height: 8,
-                              color: _chartColors[e.key % _chartColors.length],
-                            ),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                '${e.value.key} $pct%',
-                                style: const TextStyle(fontSize: 10),
-                              ),
-                            ),
-                          ],
+                  PieChart(
+                    PieChartData(
+                      sectionsSpace: 1,
+                      centerSpaceRadius: 14,
+                      sections: entries.asMap().entries.map((e) {
+                        return PieChartSectionData(
+                          value: e.value.value,
+                          color: _chartColors[e.key % _chartColors.length],
+                          showTitle: false,
+                          radius: 14,
                         );
                       }).toList(),
+                    ),
+                  ),
+                  Text(
+                    _fmt(total),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ],
               ),
             ),
+            const SizedBox(height: 4),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: entries.asMap().entries.map((e) {
+                  final pct = (e.value.value / total * 100).round();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          margin: const EdgeInsets.only(top: 3),
+                          width: 8,
+                          height: 8,
+                          color: _chartColors[e.key % _chartColors.length],
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            '${e.value.key} ${_fmt(e.value.value)}工 $pct%',
+                            style: const TextStyle(fontSize: 10),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ],
         ],
       ),
     );

@@ -23,13 +23,14 @@ class PdfService {
   // 中文字型很大,下載一次就留著用(原本每產生一份 PDF 都重新下載)。
   static Future<List<pw.Font>>? _fonts;
 
-  static Future<List<pw.Font>> _loadFonts() => _fonts ??= Future.wait([
-    PdfGoogleFonts.notoSansTCRegular(),
-    PdfGoogleFonts.notoSansTCMedium(),
-  ]).catchError((Object e) {
-    _fonts = null; // 下載失敗下次再試
-    throw e;
-  });
+  static Future<List<pw.Font>> _loadFonts() => _fonts ??=
+      Future.wait([
+        PdfGoogleFonts.notoSansTCRegular(),
+        PdfGoogleFonts.notoSansTCMedium(),
+      ]).catchError((Object e) {
+        _fonts = null; // 下載失敗下次再試
+        throw e;
+      });
 
   static Future<Uint8List> generate({
     required ReportDraft draft,
@@ -344,7 +345,7 @@ class PdfService {
                   pw.SizedBox(width: 4),
                   pw.Expanded(
                     child: pw.Text(
-                      '${e.value.key} $pct%',
+                      '${e.value.key} ${e.value.value == e.value.value.roundToDouble() ? e.value.value.toStringAsFixed(0) : e.value.value.toStringAsFixed(1)}工 $pct%',
                       style: const pw.TextStyle(fontSize: 8),
                     ),
                   ),
